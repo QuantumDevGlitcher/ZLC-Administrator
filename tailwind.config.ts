@@ -57,6 +57,15 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        // ZLC Express Brand Colors
+        zlc: {
+          darkblue: "hsl(var(--zlc-darkblue))",
+          "darkblue-foreground": "hsl(var(--zlc-darkblue-foreground))",
+          blue: "hsl(var(--zlc-blue))",
+          "blue-foreground": "hsl(var(--zlc-blue-foreground))",
+          navy: "hsl(var(--zlc-navy))",
+          "navy-foreground": "hsl(var(--zlc-navy-foreground))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
