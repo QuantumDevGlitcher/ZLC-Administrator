@@ -12,7 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Eye, EyeOff, Package, AlertCircle } from "lucide-react";
+import { Eye, EyeOff, Package, AlertCircle, Building2, FileText, Ship, Headphones } from "lucide-react";
 
 // Define roles for the application
 const ROLES = {
