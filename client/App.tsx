@@ -15,19 +15,6 @@ const queryClient = new QueryClient();
 
 // Placeholder components for other roles
 
-const LogisticaPlaceholder = () => (
-  <div className="min-h-screen flex items-center justify-center bg-background">
-    <div className="text-center">
-      <h1 className="text-2xl font-bold text-zlc-darkblue mb-4">
-        Panel de Logística
-      </h1>
-      <p className="text-muted-foreground">
-        Bookings y embarques - En desarrollo
-      </p>
-    </div>
-  </div>
-);
-
 const SoportePlaceholder = () => (
   <div className="min-h-screen flex items-center justify-center bg-background">
     <div className="text-center">
