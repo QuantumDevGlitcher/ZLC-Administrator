@@ -155,16 +155,8 @@ export default function Login() {
       // const userRole = userData.role;
       // const userPermissions = userData.permissions;
 
-      // FALLBACK: Mock role detection from email (remove when API is implemented)
-      const emailPrefix = email.split("@")[0];
-      let userRole = "";
-
-      if (emailPrefix.includes("veracidad")) userRole = "veracidad";
-      else if (emailPrefix.includes("calidad")) userRole = "calidad";
-      else if (emailPrefix.includes("aduana")) userRole = "aduana";
-      else if (emailPrefix.includes("logistica")) userRole = "logistica";
-      else if (emailPrefix.includes("soporte")) userRole = "soporte";
-      else userRole = "veracidad"; // Default role for demo
+      // Note: userRole is now obtained from hardcoded credentials above
+      // When database is implemented, userRole will come from API response
 
       // Redirect based on role from database
       const role = ROLES[userRole as keyof typeof ROLES];
