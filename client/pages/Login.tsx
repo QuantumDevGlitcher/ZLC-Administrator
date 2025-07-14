@@ -44,6 +44,34 @@ const ROLES = {
 };
 
 export default function Login() {
+  /*
+  ===== TEST CREDENTIALS FOR DEVELOPMENT =====
+  Use these credentials to test different roles:
+
+  Veracidad (Truth Inspector):
+  - veracidad@zlcexpress.com / veracidad123
+  - maria.garcia@zlcexpress.com / password123
+
+  Calidad (Quality Inspector):
+  - calidad@zlcexpress.com / calidad123
+  - juan.perez@zlcexpress.com / password123
+
+  Aduana (Customs Inspector):
+  - aduana@zlcexpress.com / aduana123
+  - carlos.lopez@zlcexpress.com / password123
+
+  Logística (Logistics Inspector):
+  - logistica@zlcexpress.com / logistica123
+  - ana.torres@zlcexpress.com / password123
+
+  Soporte (Support Administrator):
+  - soporte@zlcexpress.com / soporte123
+  - pedro.silva@zlcexpress.com / password123
+
+  Note: Remove this section when implementing real authentication
+  ============================================
+  */
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
