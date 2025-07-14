@@ -349,6 +349,40 @@ export default function Login() {
           </CardFooter>
         </form>
       </Card>
+
+      {/* Development Credentials Hint - Remove in Production */}
+      {process.env.NODE_ENV === "development" && (
+        <div className="mt-4 w-full max-w-md">
+          <Card className="bg-blue-50 border-blue-200">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm text-blue-800">
+                🔧 Credenciales de Prueba
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="text-xs text-blue-700 space-y-1">
+                <p>
+                  <strong>Veracidad:</strong> veracidad@zlcexpress.com /
+                  veracidad123
+                </p>
+                <p>
+                  <strong>Calidad:</strong> calidad@zlcexpress.com / calidad123
+                </p>
+                <p>
+                  <strong>Aduana:</strong> aduana@zlcexpress.com / aduana123
+                </p>
+                <p>
+                  <strong>Logística:</strong> logistica@zlcexpress.com /
+                  logistica123
+                </p>
+                <p>
+                  <strong>Soporte:</strong> soporte@zlcexpress.com / soporte123
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
