@@ -353,14 +353,24 @@ export default function Veracidad() {
                 </p>
               </div>
             </div>
-            <Button
-              variant="ghost"
-              onClick={handleLogout}
-              className="text-zlc-darkblue-foreground hover:bg-zlc-navy"
-            >
-              <LogOut className="w-4 h-4 mr-2" />
-              Cerrar Sesión
-            </Button>
+            <div className="flex items-center space-x-4">
+              <Button
+                variant="ghost"
+                onClick={() => navigate("/profile")}
+                className="text-zlc-darkblue-foreground hover:bg-zlc-navy"
+              >
+                <User className="w-4 h-4 mr-2" />
+                Perfil
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={handleLogout}
+                className="text-zlc-darkblue-foreground hover:bg-zlc-navy"
+              >
+                <LogOut className="w-4 h-4 mr-2" />
+                Cerrar Sesión
+              </Button>
+            </div>
           </div>
         </div>
       </header>
