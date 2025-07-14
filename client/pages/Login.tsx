@@ -230,7 +230,7 @@ export default function Login() {
           <form onSubmit={handleForgotPassword}>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="reset-email">Email Institucional</Label>
+                <Label htmlFor="reset-email">Correo Electrónico</Label>
                 <Input
                   id="reset-email"
                   type="email"
