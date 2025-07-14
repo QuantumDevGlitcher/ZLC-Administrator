@@ -240,59 +240,6 @@ export default function Login() {
           </CardFooter>
         </form>
       </Card>
-
-      {/* Role Information Panel - Desktop */}
-      <div className="hidden xl:block absolute top-8 right-8 w-80">
-        <Card className="bg-white/95 backdrop-blur-sm border-0 shadow-xl">
-          <CardHeader>
-            <CardTitle className="text-zlc-darkblue">
-              Roles del Sistema
-            </CardTitle>
-            <CardDescription>Accesos por departamento</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {Object.entries(ROLES).map(([key, role]) => (
-              <div
-                key={key}
-                className="flex items-center space-x-3 p-2 rounded-lg bg-zlc-darkblue/5"
-              >
-                <div className="w-2 h-2 bg-zlc-darkblue rounded-full"></div>
-                <div>
-                  <p className="font-medium text-zlc-darkblue">{role.name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {role.description}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Role Information Panel - Mobile */}
-      <div className="xl:hidden absolute bottom-8 left-4 right-4">
-        <Card className="bg-white/95 backdrop-blur-sm border-0 shadow-xl">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg text-zlc-darkblue">
-              Departamentos
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-2">
-              {Object.entries(ROLES).map(([key, role]) => (
-                <div
-                  key={key}
-                  className="text-center p-2 rounded-lg bg-zlc-darkblue/5"
-                >
-                  <p className="font-medium text-sm text-zlc-darkblue">
-                    {role.name}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
     </div>
   );
 }
