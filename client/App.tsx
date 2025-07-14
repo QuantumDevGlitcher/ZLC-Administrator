@@ -9,6 +9,7 @@ import Veracidad from "./pages/Veracidad";
 import Calidad from "./pages/Calidad";
 import Aduana from "./pages/Aduana";
 import Logistica from "./pages/Logistica";
+import Soporte from "./pages/Soporte";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
