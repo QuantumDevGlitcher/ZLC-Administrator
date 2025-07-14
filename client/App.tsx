@@ -10,6 +10,7 @@ import Calidad from "./pages/Calidad";
 import Aduana from "./pages/Aduana";
 import Logistica from "./pages/Logistica";
 import Soporte from "./pages/Soporte";
+import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
