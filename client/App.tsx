@@ -8,6 +8,7 @@ import Login from "./pages/Login";
 import Veracidad from "./pages/Veracidad";
 import Calidad from "./pages/Calidad";
 import Aduana from "./pages/Aduana";
+import Logistica from "./pages/Logistica";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
