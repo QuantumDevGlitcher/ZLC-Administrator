@@ -74,11 +74,88 @@ export default function Login() {
         throw new Error("Debe usar un email institucional (@zlcexpress.com)");
       }
 
+      // ===== HARDCODED CREDENTIALS FOR TESTING - REMOVE WHEN IMPLEMENTING DATABASE =====
+      // This section contains hardcoded user credentials for testing purposes.
+      // When implementing real database authentication, delete everything between these comments
+      // and replace with actual database user validation.
+
+      const testCredentials = {
+        // Veracidad Inspector
+        "veracidad@zlcexpress.com": {
+          password: "veracidad123",
+          role: "veracidad",
+          name: "Inspector de Veracidad",
+        },
+        // Quality Inspector
+        "calidad@zlcexpress.com": {
+          password: "calidad123",
+          role: "calidad",
+          name: "Inspector de Calidad",
+        },
+        // Customs Inspector
+        "aduana@zlcexpress.com": {
+          password: "aduana123",
+          role: "aduana",
+          name: "Inspector Aduanero",
+        },
+        // Logistics Inspector
+        "logistica@zlcexpress.com": {
+          password: "logistica123",
+          role: "logistica",
+          name: "Inspector Logístico",
+        },
+        // Support Administrator
+        "soporte@zlcexpress.com": {
+          password: "soporte123",
+          role: "soporte",
+          name: "Administrador de Soporte",
+        },
+        // Additional test users for each role
+        "juan.perez@zlcexpress.com": {
+          password: "password123",
+          role: "calidad",
+          name: "Juan Carlos Pérez",
+        },
+        "maria.garcia@zlcexpress.com": {
+          password: "password123",
+          role: "veracidad",
+          name: "María García",
+        },
+        "carlos.lopez@zlcexpress.com": {
+          password: "password123",
+          role: "aduana",
+          name: "Carlos López",
+        },
+        "ana.torres@zlcexpress.com": {
+          password: "password123",
+          role: "logistica",
+          name: "Ana Torres",
+        },
+        "pedro.silva@zlcexpress.com": {
+          password: "password123",
+          role: "soporte",
+          name: "Pedro Silva",
+        },
+      };
+
+      // Validate hardcoded credentials
+      const user = testCredentials[email as keyof typeof testCredentials];
+      if (!user || user.password !== password) {
+        throw new Error("Email o contraseña incorrectos");
+      }
+
+      // Get role from hardcoded user data
+      const userRole = user.role;
+
+      // ===== END OF HARDCODED CREDENTIALS SECTION =====
+      // When implementing database authentication, replace the above section with:
+      // const userRole = userData.role; // Get from API response
+
       // TODO: Get user role and permissions from API response
       // const userRole = userData.role;
       // const userPermissions = userData.permissions;
 
-      // Mock role detection from email (remove when API is implemented)
+      // FALLBACK: Mock role detection from email (remove when API is implemented)
       const emailPrefix = email.split("@")[0];
       let userRole = "";
 
