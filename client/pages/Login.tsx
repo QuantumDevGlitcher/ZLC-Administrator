@@ -57,8 +57,16 @@ export default function Login() {
     setError("");
     setIsLoading(true);
 
-    // Simulate authentication
     try {
+      // TODO: Replace with actual API call to authenticate user
+      // const response = await fetch('/api/auth/login', {
+      //   method: 'POST',
+      //   headers: { 'Content-Type': 'application/json' },
+      //   body: JSON.stringify({ email, password })
+      // });
+      // const userData = await response.json();
+
+      // Simulate API authentication
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
       // Mock role assignment based on email domain
@@ -66,7 +74,11 @@ export default function Login() {
         throw new Error("Debe usar un email institucional (@zlcexpress.com)");
       }
 
-      // Mock role detection from email
+      // TODO: Get user role and permissions from API response
+      // const userRole = userData.role;
+      // const userPermissions = userData.permissions;
+
+      // Mock role detection from email (remove when API is implemented)
       const emailPrefix = email.split("@")[0];
       let userRole = "";
 
@@ -77,7 +89,7 @@ export default function Login() {
       else if (emailPrefix.includes("soporte")) userRole = "soporte";
       else userRole = "veracidad"; // Default role for demo
 
-      // Redirect based on role
+      // Redirect based on role from database
       const role = ROLES[userRole as keyof typeof ROLES];
       if (role) {
         navigate(role.route);
