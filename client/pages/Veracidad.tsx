@@ -45,6 +45,7 @@ import {
   FileCheck,
   Building,
   Shield,
+  User,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
