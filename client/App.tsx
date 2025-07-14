@@ -16,19 +16,6 @@ const queryClient = new QueryClient();
 
 // Placeholder components for other roles
 
-const SoportePlaceholder = () => (
-  <div className="min-h-screen flex items-center justify-center bg-background">
-    <div className="text-center">
-      <h1 className="text-2xl font-bold text-zlc-darkblue mb-4">
-        Panel de Soporte
-      </h1>
-      <p className="text-muted-foreground">
-        Tickets de incidencia - En desarrollo
-      </p>
-    </div>
-  </div>
-);
-
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
