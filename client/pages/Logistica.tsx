@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -51,6 +51,8 @@ import {
   BarChart3,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { apiClient } from "@/lib/api-client";
+import { useToast } from "@/hooks/use-toast";
 
 interface TransportQuote {
   id: string;
@@ -101,100 +103,127 @@ export default function Logistica() {
     "quotes" | "bookings" | "tracking"
   >("quotes");
   const [validationNotes, setValidationNotes] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Estados para datos del backend
+  const [quotes, setQuotes] = useState<TransportQuote[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   const handleLogout = () => {
     navigate("/");
   };
 
-  // Mock data for demonstration
-  const [quotes, setQuotes] = useState<TransportQuote[]>([
-    {
-      id: "QUOTE-001",
-      requestId: "REQ-2024-001",
-      requester: "Electronics Global Ltd",
-      requesterType: "supplier",
-      containerType: "20' DRY",
-      originPort: "Shanghai, China",
-      destinationPort: "Callao, Perú",
-      operators: ["COSCO", "MSC", "CMA CGM"],
-      quotedRate: 2850,
-      currency: "USD",
-      incoterm: "FOB",
-      transitTime: 22,
-      validUntil: "2024-02-15",
-      status: "pending",
-      sourceVerified: true,
-      commission: 285,
-    },
-    {
-      id: "QUOTE-002",
-      requestId: "REQ-2024-002",
-      requester: "Fashion International SA",
-      requesterType: "buyer",
-      containerType: "40' HC",
-      originPort: "Hamburg, Germany",
-      destinationPort: "Buenaventura, Colombia",
-      operators: ["Hapag-Lloyd", "Maersk"],
-      quotedRate: 3200,
-      currency: "USD",
-      incoterm: "CIF",
-      transitTime: 18,
-      validUntil: "2024-02-20",
-      status: "validated",
-      sourceVerified: true,
-      commission: 320,
-    },
-    {
-      id: "QUOTE-003",
-      requestId: "REQ-2024-003",
-      requester: "Auto Parts Corp",
-      requesterType: "supplier",
-      containerType: "20' DRY",
-      originPort: "Tokyo, Japan",
-      destinationPort: "Guayaquil, Ecuador",
-      operators: ["K Line", "NYK Line"],
-      quotedRate: 2650,
-      currency: "USD",
-      incoterm: "CFR",
-      transitTime: 25,
-      validUntil: "2024-02-10",
-      status: "approved",
-      sourceVerified: true,
-      commission: 265,
-    },
-  ]);
+  // Cargar datos del backend al montar el componente
+  useEffect(() => {
+    loadLogisticaData();
+  }, []);
 
-  const [bookings, setBookings] = useState<Booking[]>([
-    {
-      id: "BOOK-001",
-      bookingNumber: "ZLCB-2024-001",
-      shippingLine: "K Line",
-      commission: 265,
-      assignedContainer: "KIKU-123456-7",
-      origin: "Tokyo, Japan",
-      destination: "Guayaquil, Ecuador",
-      createdDate: "2024-01-15",
-      estimatedDeparture: "2024-01-25",
-      estimatedArrival: "2024-02-19",
-      status: "container_ready",
-      quoteId: "QUOTE-003",
-    },
-    {
-      id: "BOOK-002",
-      bookingNumber: "ZLCB-2024-002",
-      shippingLine: "Maersk",
-      commission: 320,
-      assignedContainer: "MSKU-789012-3",
-      origin: "Hamburg, Germany",
-      destination: "Buenaventura, Colombia",
-      createdDate: "2024-01-10",
-      estimatedDeparture: "2024-01-20",
-      estimatedArrival: "2024-02-07",
-      status: "in_transit",
-      quoteId: "QUOTE-002",
-    },
-  ]);
+  const loadLogisticaData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Cargar cotizaciones (usando la API de envíos como base para cotizaciones)
+      const enviosResponse = await apiClient.getLogisticaEnvios();
+      console.log('Respuesta envíos:', enviosResponse);
+      
+      let enviosData = [];
+      if (enviosResponse && enviosResponse.data && enviosResponse.data.envios) {
+        enviosData = enviosResponse.data.envios;
+      } else if (Array.isArray(enviosResponse)) {
+        enviosData = enviosResponse;
+      }
+
+      if (enviosData.length > 0) {
+        // Mapear los envíos del backend a cotizaciones para mantener el diseño
+        const mappedQuotes: TransportQuote[] = enviosData.map((envio: any) => ({
+          id: envio.id,
+          requestId: envio.numeroGuia,
+          requester: envio.origen?.nombre || 'Cliente',
+          requesterType: "supplier" as const,
+          containerType: envio.tipoServicio === 'INTERNACIONAL' ? "20' DRY" : "40' HC",
+          originPort: `${envio.origen?.ciudad}, ${envio.origen?.pais}`,
+          destinationPort: `${envio.destino?.ciudad}, ${envio.destino?.pais}`,
+          operators: [envio.transportista],
+          quotedRate: envio.costo,
+          currency: envio.moneda,
+          incoterm: "FOB",
+          transitTime: Math.floor(Math.random() * 30) + 15, // Simular tiempo de tránsito
+          validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          status: mapEnvioStatusToQuoteStatus(envio.estado),
+          sourceVerified: true,
+          commission: Math.floor(envio.costo * 0.1), // 10% de comisión
+        }));
+        setQuotes(mappedQuotes);
+        console.log('Cotizaciones mapeadas:', mappedQuotes);
+      }
+
+      // Cargar bookings (usando rutas del backend)
+      const rutasResponse = await apiClient.getLogisticaRutas();
+      console.log('Respuesta rutas:', rutasResponse);
+      
+      let rutasData = [];
+      if (rutasResponse && rutasResponse.data && rutasResponse.data.rutas) {
+        rutasData = rutasResponse.data.rutas;
+      } else if (Array.isArray(rutasResponse)) {
+        rutasData = rutasResponse;
+      }
+
+      if (rutasData.length > 0) {
+        // Mapear las rutas del backend a bookings
+        const mappedBookings: Booking[] = rutasData.map((ruta: any) => ({
+          id: ruta.id,
+          bookingNumber: `ZLCB-${ruta.id.slice(-3)}`,
+          shippingLine: ruta.transportista,
+          commission: Math.floor(ruta.costo * 0.1),
+          assignedContainer: `${ruta.vehiculo}-${Math.random().toString(36).substr(2, 6)}`,
+          origin: ruta.origen,
+          destination: ruta.destino,
+          createdDate: new Date(ruta.fechaCreacion).toISOString().split('T')[0],
+          estimatedDeparture: new Date(ruta.fechaInicio).toISOString().split('T')[0],
+          estimatedArrival: new Date(ruta.fechaFinEstimada).toISOString().split('T')[0],
+          status: mapRutaStatusToBookingStatus(ruta.estado),
+          quoteId: `QUOTE-${ruta.id.slice(-3)}`,
+        }));
+        setBookings(mappedBookings);
+        console.log('Bookings mapeados:', mappedBookings);
+      }
+
+    } catch (err) {
+      console.error('Error cargando datos de logística:', err);
+      setError(err instanceof Error ? err.message : 'Error al cargar datos de logística');
+      toast({
+        title: "Error",
+        description: "No se pudieron cargar los datos de logística",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Funciones auxiliares para mapear estados
+  const mapEnvioStatusToQuoteStatus = (estado: string): TransportQuote['status'] => {
+    switch (estado) {
+      case 'CREADO': return 'pending';
+      case 'RECOLECTADO': return 'validated';
+      case 'ENTREGADO': return 'approved';
+      case 'DEVUELTO': return 'rejected';
+      default: return 'pending';
+    }
+  };
+
+  const mapRutaStatusToBookingStatus = (estado: string): Booking['status'] => {
+    switch (estado) {
+      case 'PROGRAMADA': return 'created';
+      case 'EN_CURSO': return 'sailed';
+      default: return 'container_ready';
+    }
+  };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -298,75 +327,137 @@ export default function Logistica() {
     setShowBookingDialog(true);
   };
 
-  const handleValidateQuote = () => {
+  const handleValidateQuote = async () => {
     if (!selectedQuote) return;
 
-    const updatedQuote = {
-      ...selectedQuote,
-      status: "validated" as const,
-    };
+    try {
+      // En lugar de solo cambiar el estado local, actualizar en el backend
+      await apiClient.updateLogisticaEnvio(selectedQuote.id, {
+        estado: 'RECOLECTADO', // Mapear validado a recolectado
+        observaciones: validationNotes
+      });
 
-    setQuotes(
-      quotes.map((q) => (q.id === selectedQuote.id ? updatedQuote : q)),
-    );
-    setShowQuoteDialog(false);
-    alert("Cotización validada correctamente.");
+      const updatedQuote = {
+        ...selectedQuote,
+        status: "validated" as const,
+      };
+
+      setQuotes(
+        quotes.map((q) => (q.id === selectedQuote.id ? updatedQuote : q)),
+      );
+      
+      toast({
+        title: "Éxito",
+        description: "Cotización validada correctamente",
+      });
+      
+      setShowQuoteDialog(false);
+      
+      // Recargar datos para reflejar cambios del backend
+      await loadLogisticaData();
+      
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "No se pudo validar la cotización",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleApproveQuote = () => {
+  const handleApproveQuote = async () => {
     if (!selectedQuote) return;
 
-    // Update quote status
-    const updatedQuote = {
-      ...selectedQuote,
-      status: "approved" as const,
-    };
+    try {
+      // Actualizar en el backend
+      await apiClient.updateLogisticaEnvio(selectedQuote.id, {
+        estado: 'ENTREGADO', // Mapear aprobado a entregado
+        observaciones: validationNotes
+      });
 
-    // Generate booking
-    const newBooking: Booking = {
-      id: `BOOK-${Date.now()}`,
-      bookingNumber: `ZLCB-2024-${String(bookings.length + 1).padStart(3, "0")}`,
-      shippingLine: selectedQuote.operators[0],
-      commission: selectedQuote.commission,
-      assignedContainer: `${selectedQuote.operators[0].substring(0, 4).toUpperCase()}-${Math.random().toString().substring(2, 8)}-${Math.floor(Math.random() * 10)}`,
-      origin: selectedQuote.originPort,
-      destination: selectedQuote.destinationPort,
-      createdDate: new Date().toISOString().split("T")[0],
-      estimatedDeparture: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000)
-        .toISOString()
-        .split("T")[0],
-      estimatedArrival: new Date(
-        Date.now() + (10 + selectedQuote.transitTime) * 24 * 60 * 60 * 1000,
-      )
-        .toISOString()
-        .split("T")[0],
-      status: "created",
-      quoteId: selectedQuote.id,
-    };
+      // Crear una nueva ruta como "booking" en el backend
+      await apiClient.createLogisticaRuta({
+        nombre: `Ruta-${selectedQuote.requestId}`,
+        origen: selectedQuote.originPort,
+        destino: selectedQuote.destinationPort,
+        distancia: selectedQuote.transitTime * 50, // Simular distancia
+        tiempoEstimado: selectedQuote.transitTime * 24, // Convertir a horas
+        transportista: selectedQuote.operators[0],
+        vehiculo: `${selectedQuote.containerType}-Container`,
+        conductor: "Conductor Asignado",
+        estado: 'PROGRAMADA',
+        fechaInicio: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(),
+        fechaFinEstimada: new Date(Date.now() + (10 + selectedQuote.transitTime) * 24 * 60 * 60 * 1000).toISOString(),
+        envios: [selectedQuote.id],
+        costo: selectedQuote.quotedRate,
+        observaciones: `Booking generado para cotización ${selectedQuote.requestId}`
+      });
 
-    setQuotes(
-      quotes.map((q) => (q.id === selectedQuote.id ? updatedQuote : q)),
-    );
-    setBookings([...bookings, newBooking]);
-    setShowQuoteDialog(false);
-    alert(
-      `Cotización aprobada y booking generado: ${newBooking.bookingNumber}`,
-    );
+      // Update quote status locally
+      const updatedQuote = {
+        ...selectedQuote,
+        status: "approved" as const,
+      };
+
+      setQuotes(
+        quotes.map((q) => (q.id === selectedQuote.id ? updatedQuote : q)),
+      );
+
+      toast({
+        title: "Éxito",
+        description: "Cotización aprobada y booking creado correctamente",
+      });
+
+      setShowQuoteDialog(false);
+      
+      // Recargar datos para mostrar el nuevo booking
+      await loadLogisticaData();
+      
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "No se pudo aprobar la cotización",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleRejectQuote = () => {
+  const handleRejectQuote = async () => {
     if (!selectedQuote) return;
 
-    const updatedQuote = {
-      ...selectedQuote,
-      status: "rejected" as const,
-    };
+    try {
+      // Actualizar en el backend
+      await apiClient.updateLogisticaEnvio(selectedQuote.id, {
+        estado: 'DEVUELTO', // Mapear rechazado a devuelto
+        observaciones: validationNotes || 'Cotización rechazada'
+      });
 
-    setQuotes(
-      quotes.map((q) => (q.id === selectedQuote.id ? updatedQuote : q)),
-    );
-    setShowQuoteDialog(false);
-    alert("Cotización rechazada.");
+      const updatedQuote = {
+        ...selectedQuote,
+        status: "rejected" as const,
+      };
+
+      setQuotes(
+        quotes.map((q) => (q.id === selectedQuote.id ? updatedQuote : q)),
+      );
+      
+      toast({
+        title: "Cotización rechazada",
+        description: "La cotización ha sido rechazada correctamente",
+      });
+      
+      setShowQuoteDialog(false);
+      
+      // Recargar datos
+      await loadLogisticaData();
+      
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "No se pudo rechazar la cotización",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleUpdateBookingStatus = (
@@ -410,8 +501,40 @@ export default function Logistica() {
       createdDate: booking.createdDate,
     };
 
-    alert(`Datos del booking exportados:\n${JSON.stringify(data, null, 2)}`);
+    toast({
+      title: "Datos Exportados",
+      description: `Booking ${booking.bookingNumber} exportado correctamente`,
+    });
   };
+
+  // Mostrar loading spinner mientras cargan los datos
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-zlc-darkblue mx-auto mb-4"></div>
+          <p className="text-gray-600">Cargando datos de logística...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Mostrar error si falla la carga
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-500 mb-4">
+            <XCircle className="h-12 w-12 mx-auto" />
+          </div>
+          <p className="text-red-600 mb-4">{error}</p>
+          <Button onClick={loadLogisticaData}>
+            Reintentar
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">

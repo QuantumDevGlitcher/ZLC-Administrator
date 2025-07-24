@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,6 +50,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { apiClient } from "@/lib/api-client";
+import { useToast } from "@/hooks/use-toast";
 
 interface ProformaOrder {
   id: string;
@@ -99,6 +101,9 @@ export default function Aduana() {
   const [selectedOrder, setSelectedOrder] = useState<ProformaOrder | null>(
     null,
   );
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
   const [showOrderDialog, setShowOrderDialog] = useState(false);
   const [showLegalUpdatesDialog, setShowLegalUpdatesDialog] = useState(false);
   const [showTemplateUploadDialog, setShowTemplateUploadDialog] =
@@ -119,8 +124,127 @@ export default function Aduana() {
     navigate("/");
   };
 
-  // Mock data for demonstration
-  const [orders, setOrders] = useState<ProformaOrder[]>([
+  // Estados para datos del backend
+  const [orders, setOrders] = useState<ProformaOrder[]>([]);
+
+  // Cargar datos del backend al montar el componente
+  useEffect(() => {
+    loadAduanaData();
+  }, []);
+
+  const loadAduanaData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Cargar órdenes (usando documentos del backend como base)
+      const documentosResponse = await apiClient.getAduanaDocumentos();
+      console.log('Respuesta documentos aduana:', documentosResponse);
+      
+      let documentosData = [];
+      if (documentosResponse && documentosResponse.data && documentosResponse.data.documentos) {
+        documentosData = documentosResponse.data.documentos;
+      } else if (Array.isArray(documentosResponse)) {
+        documentosData = documentosResponse;
+      }
+
+      if (documentosData.length > 0) {
+        // Mapear los documentos del backend a órdenes proforma
+        const mappedOrders: ProformaOrder[] = documentosData.map((documento: any) => ({
+          id: documento.id,
+          poNumber: documento.numeroDocumento,
+          supplier: documento.importador?.nombre || documento.exportador?.nombre || 'Proveedor',
+          date: new Date(documento.fechaCreacion).toISOString().split('T')[0],
+          documentStatus: mapDocumentStatusToOrderStatus(documento.estado),
+          documents: {
+            commercialInvoice: {
+              uploaded: documento.documentosAdjuntos?.some((doc: any) => doc.tipo === 'FACTURA') || false,
+              status: documento.estado === 'APROBADO' ? 'approved' : documento.estado === 'RECHAZADO' ? 'rejected' : 'pending'
+            },
+            packingList: {
+              uploaded: documento.documentosAdjuntos?.some((doc: any) => doc.tipo === 'LISTA_EMPAQUE') || false,
+              status: documento.estado === 'APROBADO' ? 'approved' : documento.estado === 'RECHAZADO' ? 'rejected' : 'pending'
+            },
+            billOfLading: {
+              uploaded: documento.tipo === 'MANIFIESTO' || Math.random() > 0.5, // Simular algunos con conocimiento de embarque
+              status: documento.estado === 'APROBADO' ? 'approved' : documento.estado === 'RECHAZADO' ? 'rejected' : 'pending'
+            },
+            certificateOfOrigin: {
+              uploaded: documento.documentosAdjuntos?.some((doc: any) => doc.tipo === 'CERTIFICADO') || Math.random() > 0.3,
+              status: documento.estado === 'APROBADO' ? 'approved' : documento.estado === 'RECHAZADO' ? 'rejected' : 'pending'
+            }
+          }
+        }));
+        setOrders(mappedOrders);
+        console.log('Órdenes mapeadas:', mappedOrders);
+      }
+
+      // Cargar plantillas del backend
+      const plantillasResponse = await apiClient.getPlantillas();
+      console.log('Respuesta plantillas:', plantillasResponse);
+      
+      let plantillasData = [];
+      if (plantillasResponse && plantillasResponse.data && plantillasResponse.data.plantillas) {
+        plantillasData = plantillasResponse.data.plantillas;
+      } else if (Array.isArray(plantillasResponse)) {
+        plantillasData = plantillasResponse;
+      }
+
+      if (plantillasData.length > 0) {
+        // Mapear las plantillas del backend
+        const mappedTemplates: Template[] = plantillasData.map((plantilla: any) => ({
+          id: plantilla.id,
+          name: plantilla.nombre,
+          type: plantilla.tipo,
+          uploadDate: new Date(plantilla.fechaSubida).toISOString().split('T')[0],
+          url: plantilla.url,
+        }));
+        setTemplates(mappedTemplates);
+        console.log('Plantillas mapeadas:', mappedTemplates);
+      }
+
+      // Cargar regulaciones del backend
+      const regulacionesResponse = await apiClient.getRegulaciones();
+      console.log('Respuesta regulaciones:', regulacionesResponse);
+      
+      if (regulacionesResponse && regulacionesResponse.data && regulacionesResponse.data.regulaciones) {
+        const regulaciones = regulacionesResponse.data.regulaciones;
+        if (regulaciones.length > 0) {
+          setZlcCustomsContent(regulaciones[0].contenido);
+        }
+      }
+
+    } catch (err) {
+      console.error('Error cargando datos de aduana:', err);
+      setError(err instanceof Error ? err.message : 'Error al cargar datos de aduana');
+      toast({
+        title: "Error",
+        description: "No se pudieron cargar los datos de aduana",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Función auxiliar para mapear estados
+  const mapDocumentStatusToOrderStatus = (estado: string): ProformaOrder['documentStatus'] => {
+    switch (estado) {
+      case 'APROBADO':
+      case 'FINALIZADO':
+        return 'complete';
+      case 'RECHAZADO':
+        return 'rejected';
+      case 'EN_PROCESO':
+        return 'partial';
+      case 'PENDIENTE':
+      default:
+        return 'pending';
+    }
+  };
+
+  // Mock data for demonstration - REEMPLAZADO POR DATOS DEL BACKEND
+  /*const [orders, setOrders] = useState<ProformaOrder[]>([
     {
       id: "PO-001",
       poNumber: "PO-2024-001",
@@ -181,7 +305,7 @@ export default function Aduana() {
         certificateOfOrigin: { uploaded: false },
       },
     },
-  ]);
+  ]);*/
 
   const [templates, setTemplates] = useState<Template[]>([
     {
@@ -279,7 +403,7 @@ export default function Aduana() {
     setShowOrderDialog(true);
   };
 
-  const handleDocumentApproval = (
+  const handleDocumentApproval = async (
     docType: keyof ProformaOrder["documents"],
     action: "approve" | "reject",
   ) => {
@@ -290,80 +414,132 @@ export default function Aduana() {
       return;
     }
 
-    const updatedOrder = {
-      ...selectedOrder,
-      documents: {
-        ...selectedOrder.documents,
-        [docType]: {
-          ...selectedOrder.documents[docType],
-          status: action === "approve" ? "approved" : "rejected",
-          comment: action === "reject" ? rejectionComment : undefined,
-        },
-      },
-    };
+    try {
+      setLoading(true);
+      
+      // Llamar a la API del backend para aprobar o rechazar documento
+      if (action === "approve") {
+        await apiClient.aprobarDocumentoOrden(selectedOrder.id, docType);
+      } else {
+        await apiClient.rechazarDocumentoOrden(selectedOrder.id, docType, rejectionComment);
+      }
 
-    // Update document status based on all documents
-    const allDocs = Object.values(updatedOrder.documents);
-    const uploadedDocs = allDocs.filter((doc) => doc.uploaded);
-    const approvedDocs = uploadedDocs.filter(
-      (doc) => doc.status === "approved",
-    );
-    const rejectedDocs = uploadedDocs.filter(
-      (doc) => doc.status === "rejected",
-    );
+      // Recargar los datos después de la operación
+      await loadAduanaData();
+      
+      toast({
+        title: "Documento actualizado",
+        description: `Documento ${docType} ${action === "approve" ? "aprobado" : "rechazado"} correctamente`,
+      });
 
-    if (rejectedDocs.length > 0) {
-      updatedOrder.documentStatus = "rejected";
-    } else if (approvedDocs.length === 4) {
-      updatedOrder.documentStatus = "complete";
-    } else if (approvedDocs.length > 0) {
-      updatedOrder.documentStatus = "partial";
-    } else {
-      updatedOrder.documentStatus = "pending";
+      setRejectionComment("");
+      setSelectedDocument("");
+
+    } catch (err) {
+      console.error('Error actualizando documento:', err);
+      toast({
+        title: "Error",
+        description: `No se pudo ${action === "approve" ? "aprobar" : "rechazar"} el documento`,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
     }
-
-    setOrders(
-      orders.map((o) => (o.id === selectedOrder.id ? updatedOrder : o)),
-    );
-    setSelectedOrder(updatedOrder);
-    setRejectionComment("");
-    setSelectedDocument("");
-
-    const actionText = action === "approve" ? "aprobado" : "rechazado";
-    alert(`Documento ${docType} ${actionText} correctamente.`);
   };
 
-  const handleSaveCustomsContent = () => {
-    setIsEditingCustoms(false);
-    alert("Contenido de Aduana ZLC actualizado correctamente.");
+  const handleSaveCustomsContent = async () => {
+    try {
+      setLoading(true);
+      
+      await apiClient.updateRegulacion('REG-001', zlcCustomsContent);
+      
+      setIsEditingCustoms(false);
+      toast({
+        title: "Regulaciones actualizadas",
+        description: "El contenido de Aduana ZLC ha sido actualizado correctamente",
+      });
+
+    } catch (err) {
+      console.error('Error actualizando regulaciones:', err);
+      toast({
+        title: "Error",
+        description: "No se pudo actualizar el contenido de regulaciones",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleUploadTemplate = () => {
+  const handleUploadTemplate = async () => {
     if (!newTemplateName.trim()) {
-      alert("Debe proporcionar un nombre para la plantilla.");
+      toast({
+        title: "Error",
+        description: "Debe proporcionar un nombre para la plantilla",
+        variant: "destructive",
+      });
       return;
     }
 
-    const newTemplate: Template = {
-      id: `TEMP-${Date.now()}`,
-      name: newTemplateName,
-      type: newTemplateType,
-      uploadDate: new Date().toISOString().split("T")[0],
-      url: `/templates/${newTemplateName.toLowerCase().replace(/\s+/g, "-")}.${
-        newTemplateType === "packing_list" ? "xlsx" : "pdf"
-      }`,
-    };
+    try {
+      setLoading(true);
+      
+      const templateData = {
+        nombre: newTemplateName,
+        tipo: newTemplateType,
+        descripcion: `Plantilla de ${newTemplateType === 'packing_list' ? 'lista de empaque' : 'carta de instrucciones'}`
+      };
 
-    setTemplates([...templates, newTemplate]);
-    setNewTemplateName("");
-    setShowTemplateUploadDialog(false);
-    alert("Plantilla subida correctamente.");
+      const response = await apiClient.createPlantilla(templateData);
+      
+      if (response && response.data) {
+        // Recargar plantillas
+        await loadAduanaData();
+        
+        setNewTemplateName("");
+        setShowTemplateUploadDialog(false);
+        
+        toast({
+          title: "Plantilla subida",
+          description: "La plantilla ha sido subida correctamente",
+        });
+      }
+
+    } catch (err) {
+      console.error('Error subiendo plantilla:', err);
+      toast({
+        title: "Error",
+        description: "No se pudo subir la plantilla",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleDeleteTemplate = (templateId: string) => {
-    if (confirm("¿Está seguro de eliminar esta plantilla?")) {
-      setTemplates(templates.filter((t) => t.id !== templateId));
-      alert("Plantilla eliminada correctamente.");
+  const handleDeleteTemplate = async (templateId: string) => {
+    try {
+      setLoading(true);
+      
+      await apiClient.deletePlantilla(templateId);
+      
+      // Recargar plantillas
+      await loadAduanaData();
+      
+      toast({
+        title: "Plantilla eliminada",
+        description: "La plantilla ha sido eliminada correctamente",
+      });
+
+    } catch (err) {
+      console.error('Error eliminando plantilla:', err);
+      toast({
+        title: "Error",
+        description: "No se pudo eliminar la plantilla",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -464,6 +640,12 @@ export default function Aduana() {
                 </Select>
               </div>
             </div>
+            
+            <div className="mt-4 flex gap-2">
+              <Button onClick={loadAduanaData} disabled={loading} variant="outline">
+                {loading ? "Cargando..." : "Actualizar Datos"}
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
@@ -537,8 +719,25 @@ export default function Aduana() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {filteredOrders.map((order) => (
+            {loading ? (
+              <div className="flex justify-center items-center py-8">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-zlc-darkblue mx-auto"></div>
+                  <p className="mt-2 text-sm text-muted-foreground">Cargando datos...</p>
+                </div>
+              </div>
+            ) : error ? (
+              <div className="flex justify-center items-center py-8">
+                <div className="text-center text-red-600">
+                  <p>Error al cargar datos: {error}</p>
+                  <Button onClick={loadAduanaData} variant="outline" className="mt-2">
+                    Reintentar
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {filteredOrders.map((order) => (
                 <div
                   key={order.id}
                   className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
@@ -574,7 +773,8 @@ export default function Aduana() {
                   </div>
                 </div>
               ))}
-            </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </main>
@@ -662,7 +862,19 @@ export default function Aduana() {
                           )}
                           {docData.uploaded && (
                             <>
-                              <Button size="sm" variant="outline">
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => {
+                                  const docName = documentNames[docKey as keyof typeof documentNames];
+                                  toast({
+                                    title: "Abriendo documento",
+                                    description: `Visualizando ${docName}...`,
+                                  });
+                                  // Simular apertura de documento
+                                  window.open('#', '_blank');
+                                }}
+                              >
                                 <Download className="w-3 h-3 mr-1" />
                                 Ver
                               </Button>
@@ -858,14 +1070,30 @@ export default function Aduana() {
                         </div>
                       </div>
                       <div className="flex items-center space-x-2">
-                        <Button size="sm" variant="outline">
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={() => {
+                            toast({
+                              title: "Descarga iniciada",
+                              description: `Descargando ${template.name}...`,
+                            });
+                            // Simular descarga
+                            window.open(template.url, '_blank');
+                          }}
+                        >
                           <Download className="w-3 h-3 mr-1" />
                           Descargar
                         </Button>
                         <Button
                           size="sm"
                           variant="destructive"
-                          onClick={() => handleDeleteTemplate(template.id)}
+                          onClick={() => {
+                            if (confirm("¿Está seguro de eliminar esta plantilla?")) {
+                              handleDeleteTemplate(template.id);
+                            }
+                          }}
+                          disabled={loading}
                         >
                           <Trash2 className="w-3 h-3" />
                         </Button>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,6 +26,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
+import { apiClient } from "@/lib/api-client";
 import {
   LogOut,
   Search,
@@ -48,10 +50,168 @@ import {
   Plus,
   FileText,
   Image,
+  Loader2,
   Download,
   Archive,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+
+// Backend interfaces
+interface BackendTicket {
+  id: string;
+  numeroTicket: string;
+  titulo: string;
+  descripcion: string;
+  categoria: 'TECNICO' | 'FUNCIONAL' | 'ACCESO' | 'DATOS' | 'INTEGRACION' | 'OTROS';
+  prioridad: 'BAJA' | 'MEDIA' | 'ALTA' | 'CRITICA';
+  estado: 'ABIERTO' | 'EN_PROCESO' | 'ESPERANDO_CLIENTE' | 'RESUELTO' | 'CERRADO';
+  usuarioCreador: {
+    id: string;
+    nombre: string;
+    email: string;
+    telefono?: string;
+    empresa?: string;
+    departamento?: string;
+  };
+  agenteAsignado?: {
+    id: string;
+    nombre: string;
+    email: string;
+    nivel: 'JUNIOR' | 'SENIOR' | 'EXPERT' | 'LEAD';
+    especialidades: string[];
+    ticketsAsignados: number;
+    disponible: boolean;
+  };
+  fechaCreacion: string | Date;
+  fechaActualizacion: string | Date;
+  fechaVencimiento: string | Date;
+  tiempoRespuesta?: number;
+  tiempoResolucion?: number;
+  comentarios: {
+    id: string;
+    autor: string;
+    tipo: 'COMENTARIO' | 'SOLUCION' | 'ESCALAMIENTO' | 'CIERRE';
+    contenido: string;
+    esInterno: boolean;
+    fechaCreacion: string | Date;
+    archivos?: string[];
+  }[];
+  archivos: {
+    id: string;
+    nombre: string;
+    tipo: string;
+    tamaño: number;
+    url: string;
+    fechaSubida: string | Date;
+    subidoPor: string;
+  }[];
+  etiquetas: string[];
+  satisfaccion?: {
+    puntuacion: number;
+    comentario?: string;
+    fechaRating: Date;
+  };
+}
+
+// Conversion functions
+function convertBackendToFrontend(backendTicket: BackendTicket): SupportTicket {
+  return {
+    id: backendTicket.id,
+    incidentType: backendTicket.categoria,
+    linkedOrder: backendTicket.numeroTicket,
+    status: convertBackendStatus(backendTicket.estado),
+    responsible: backendTicket.agenteAsignado?.nombre || "No asignado",
+    responsibleType: determineResponsibleType(backendTicket.categoria),
+    priority: convertBackendPriority(backendTicket.prioridad),
+    reporter: backendTicket.usuarioCreador.nombre,
+    reporterType: determineReporterType(backendTicket.usuarioCreador.empresa),
+    subject: backendTicket.titulo,
+    description: backendTicket.descripcion,
+    createdDate: typeof backendTicket.fechaCreacion === 'string' ? backendTicket.fechaCreacion : backendTicket.fechaCreacion.toISOString(),
+    lastUpdated: typeof backendTicket.fechaActualizacion === 'string' ? backendTicket.fechaActualizacion : backendTicket.fechaActualizacion.toISOString(),
+    responses: backendTicket.comentarios.map(comment => ({
+      id: comment.id,
+      author: comment.autor,
+      authorType: determineAuthorType(comment.autor),
+      message: comment.contenido,
+      timestamp: typeof comment.fechaCreacion === 'string' ? comment.fechaCreacion : comment.fechaCreacion.toISOString(),
+      attachments: comment.archivos || []
+    })),
+    evidence: backendTicket.archivos.map(archivo => ({
+      id: archivo.id,
+      name: archivo.nombre,
+      type: determineFileType(archivo.tipo),
+      url: archivo.url,
+      uploadedBy: archivo.subidoPor,
+      uploadedDate: typeof archivo.fechaSubida === 'string' ? archivo.fechaSubida : archivo.fechaSubida.toISOString()
+    })),
+    escalated: backendTicket.etiquetas.includes('ESCALATED'),
+    escalationDate: backendTicket.etiquetas.includes('ESCALATED') ? 
+      (typeof backendTicket.fechaActualizacion === 'string' ? backendTicket.fechaActualizacion : backendTicket.fechaActualizacion.toISOString()) : 
+      undefined
+  };
+}
+
+function convertBackendStatus(backendStatus: string): "open" | "in_progress" | "resolved" | "closed" {
+  switch (backendStatus) {
+    case 'ABIERTO': return 'open';
+    case 'EN_PROCESO': return 'in_progress';
+    case 'ESPERANDO_CLIENTE': return 'in_progress';
+    case 'RESUELTO': return 'resolved';
+    case 'CERRADO': return 'closed';
+    default: return 'open';
+  }
+}
+
+function convertBackendPriority(backendPriority: string): "low" | "medium" | "high" | "urgent" {
+  switch (backendPriority) {
+    case 'BAJA': return 'low';
+    case 'MEDIA': return 'medium';
+    case 'ALTA': return 'high';
+    case 'CRITICA': return 'urgent';
+    default: return 'medium';
+  }
+}
+
+function determineResponsibleType(categoria: string): "logistics" | "customs" | "quality" | "unassigned" {
+  switch (categoria) {
+    case 'TECNICO': return 'quality';
+    case 'FUNCIONAL': return 'logistics';
+    case 'ACCESO': return 'quality';
+    case 'DATOS': return 'customs';
+    case 'INTEGRACION': return 'logistics';
+    default: return 'unassigned';
+  }
+}
+
+function determineReporterType(empresa?: string): "supplier" | "buyer" {
+  return empresa?.toLowerCase().includes('supplier') || empresa?.toLowerCase().includes('proveedor') ? 'supplier' : 'buyer';
+}
+
+function determineAuthorType(author: string): "support" | "inspector" | "client" {
+  // Si el autor contiene "@soporte.com" es del equipo de soporte
+  if (author.includes('@soporte.com') || author.includes('González') || author.includes('Rodríguez')) {
+    return 'support';
+  }
+  // Si no, es un cliente
+  return 'client';
+}
+
+function convertAuthorType(tipo: string): "support" | "inspector" | "client" {
+  switch (tipo) {
+    case 'COMENTARIO': return 'support';
+    case 'SOLUCION': return 'support';
+    case 'ESCALAMIENTO': return 'inspector';
+    case 'CIERRE': return 'support';
+    default: return 'client';
+  }
+}
+
+function determineFileType(mimeType: string): "image" | "pdf" | "document" {
+  if (mimeType.includes('image')) return 'image';
+  if (mimeType.includes('pdf')) return 'pdf';
+  return 'document';
+}
 
 interface SupportTicket {
   id: string;
@@ -108,168 +268,182 @@ export default function Soporte() {
   const [assignmentComment, setAssignmentComment] = useState("");
   const [responseMessage, setResponseMessage] = useState("");
   const [selectedInspector, setSelectedInspector] = useState("");
+  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [inspectors, setInspectors] = useState<{[key: string]: string[]}>({
+    logistics: [],
+    customs: [],
+    quality: []
+  });
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   const handleLogout = () => {
     navigate("/");
   };
 
-  // Mock data for demonstration
-  const [tickets, setTickets] = useState<SupportTicket[]>([
-    {
-      id: "TICK-001",
-      incidentType: "Documentación Incorrecta",
-      linkedOrder: "PO-2024-001",
-      status: "open",
-      responsible: "No asignado",
-      responsibleType: "unassigned",
-      priority: "high",
-      reporter: "Electronics Global Ltd",
-      reporterType: "supplier",
-      subject: "Documentos de importación rechazados",
-      description:
-        "Los documentos de importación fueron rechazados por aduana. Necesitamos revisar el certificado de origen.",
-      createdDate: "2024-01-15",
-      lastUpdated: "2024-01-15",
-      responses: [
-        {
-          id: "RESP-001",
-          author: "Electronics Global Ltd",
-          authorType: "client",
-          message:
-            "Los documentos de importación fueron rechazados por aduana. Necesitamos revisar el certificado de origen.",
-          timestamp: "2024-01-15 09:30",
-          attachments: ["certificate_rejection.pdf"],
-        },
-      ],
-      evidence: [
-        {
-          id: "EVD-001",
-          name: "certificate_rejection.pdf",
-          type: "pdf",
-          url: "/evidence/certificate_rejection.pdf",
-          uploadedBy: "Electronics Global Ltd",
-          uploadedDate: "2024-01-15",
-        },
-      ],
-      escalated: false,
-    },
-    {
-      id: "TICK-002",
-      incidentType: "Retraso en Embarque",
-      linkedOrder: "PO-2024-002",
-      status: "in_progress",
-      responsible: "Inspector Logístico - Juan Pérez",
-      responsibleType: "logistics",
-      priority: "medium",
-      reporter: "Fashion International SA",
-      reporterType: "buyer",
-      subject: "Contenedor no zarpó en fecha programada",
-      description:
-        "El contenedor MSKU-789012-3 no zarpó en la fecha programada del 20 de enero.",
-      createdDate: "2024-01-12",
-      lastUpdated: "2024-01-13",
-      responses: [
-        {
-          id: "RESP-002",
-          author: "Fashion International SA",
-          authorType: "client",
-          message:
-            "El contenedor MSKU-789012-3 no zarpó en la fecha programada del 20 de enero.",
-          timestamp: "2024-01-12 14:20",
-          attachments: [],
-        },
-        {
-          id: "RESP-003",
-          author: "Juan Pérez",
-          authorType: "inspector",
-          message:
-            "Se está coordinando con la naviera para reprogramar el embarque. Tendremos actualización mañana.",
-          timestamp: "2024-01-13 10:15",
-          attachments: [],
-        },
-      ],
-      evidence: [],
-      escalated: false,
-    },
-    {
-      id: "TICK-003",
-      incidentType: "Problema de Calidad",
-      linkedOrder: "LOT-2024-003",
-      status: "resolved",
-      responsible: "Inspector Calidad - María García",
-      responsibleType: "quality",
-      priority: "urgent",
-      reporter: "Food Express SAC",
-      reporterType: "supplier",
-      subject: "Lote rechazado por falta de documentación",
-      description:
-        "El lote LOT-2024-003 fue rechazado por falta de fotos del interior de las cajas.",
-      createdDate: "2024-01-10",
-      lastUpdated: "2024-01-14",
-      responses: [
-        {
-          id: "RESP-004",
-          author: "Food Express SAC",
-          authorType: "client",
-          message:
-            "El lote LOT-2024-003 fue rechazado por falta de fotos del interior de las cajas.",
-          timestamp: "2024-01-10 16:45",
-          attachments: [],
-        },
-        {
-          id: "RESP-005",
-          author: "María García",
-          authorType: "inspector",
-          message:
-            "Se requieren fotos adicionales del interior de las cajas para completar la inspección.",
-          timestamp: "2024-01-11 09:30",
-          attachments: [],
-        },
-        {
-          id: "RESP-006",
-          author: "Food Express SAC",
-          authorType: "client",
-          message: "Fotos adicionales subidas. Por favor revisar.",
-          timestamp: "2024-01-14 11:20",
-          attachments: ["interior_boxes_01.jpg", "interior_boxes_02.jpg"],
-        },
-        {
-          id: "RESP-007",
-          author: "María García",
-          authorType: "inspector",
-          message: "Fotos revisadas y aprobadas. Lote aprobado.",
-          timestamp: "2024-01-14 15:30",
-          attachments: [],
-        },
-      ],
-      evidence: [
-        {
-          id: "EVD-002",
-          name: "interior_boxes_01.jpg",
-          type: "image",
-          url: "/evidence/interior_boxes_01.jpg",
-          uploadedBy: "Food Express SAC",
-          uploadedDate: "2024-01-14",
-        },
-        {
-          id: "EVD-003",
-          name: "interior_boxes_02.jpg",
-          type: "image",
-          url: "/evidence/interior_boxes_02.jpg",
-          uploadedBy: "Food Express SAC",
-          uploadedDate: "2024-01-14",
-        },
-      ],
-      escalated: true,
-      escalationDate: "2024-01-12",
-    },
-  ]);
+  // Load tickets from backend
+  useEffect(() => {
+    console.log('🔍 useEffect triggered with filters:', { statusFilter, priorityFilter, typeFilter });
+    loadTickets();
+    loadInspectors();
+  }, [statusFilter, priorityFilter, typeFilter]);
 
-  const inspectors = {
-    logistics: ["Juan Pérez", "Carlos Rodríguez", "Ana López"],
-    customs: ["Miguel Torres", "Sofia Mendoza", "Roberto Silva"],
-    quality: ["María García", "Pedro Morales", "Lucia Fernández"],
+  // Monitor tickets state changes
+  useEffect(() => {
+    console.log('🔍 Tickets state changed:', tickets);
+    console.log('🔍 Number of tickets in state:', tickets.length);
+  }, [tickets]);
+
+  const loadTickets = async () => {
+    try {
+      setLoading(true);
+      console.log('🔍 Starting loadTickets function');
+      
+      // Check if we have authentication token
+      const token = localStorage.getItem('accessToken');
+      if (!token) {
+        console.warn('No authentication token found, redirecting to login');
+        navigate('/');
+        return;
+      }
+
+      const params = new URLSearchParams();
+      
+      if (statusFilter !== 'all') {
+        params.append('estado', convertFrontendStatus(statusFilter));
+      }
+      if (priorityFilter !== 'all') {
+        params.append('prioridad', convertFrontendPriority(priorityFilter));
+      }
+      if (typeFilter !== 'all') {
+        params.append('categoria', typeFilter.toUpperCase());
+      }
+
+      console.log('🔍 Loading tickets with params:', params.toString());
+      console.log('🔍 Auth token present:', !!token);
+      console.log('🔍 Making API call to getSoporteTickets...');
+      
+      const response = await apiClient.getSoporteTickets(params.toString());
+      console.log('🔍 Raw API response:', response);
+      
+      if (response && response.data && response.data.tickets) {
+        const tickets = response.data.tickets;
+        console.log('🔍 Tickets array from backend:', tickets);
+        console.log('🔍 Number of tickets:', tickets.length);
+        
+        if (Array.isArray(tickets)) {
+          console.log('🔍 Converting', tickets.length, 'tickets from backend to frontend format');
+          console.log('🔍 First ticket example:', tickets[0]);
+          
+          const convertedTickets = tickets.map((ticket, index) => {
+            console.log(`🔍 Converting ticket ${index + 1}:`, ticket);
+            const converted = convertBackendToFrontend(ticket);
+            console.log(`🔍 Converted ticket ${index + 1}:`, converted);
+            return converted;
+          });
+          
+          console.log('🔍 All converted tickets:', convertedTickets);
+          setTickets(convertedTickets);
+          console.log('🔍 Tickets state updated successfully');
+        } else {
+          console.warn('❌ Response data.tickets is not an array:', tickets);
+          setTickets([]);
+        }
+      } else {
+        console.warn('❌ No data.tickets in response structure:', response);
+        setTickets([]);
+      }
+    } catch (error: any) {
+      console.error('Error loading tickets:', error);
+      
+      // If 401 or 403, redirect to login
+      if (error.status === 401 || error.status === 403) {
+        localStorage.removeItem('accessToken');
+        navigate('/');
+        return;
+      }
+      
+      toast({
+        title: "Error",
+        description: `Error al cargar tickets: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+        variant: "destructive",
+      });
+      setTickets([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const convertFrontendStatus = (status: string) => {
+    switch (status) {
+      case 'open': return 'ABIERTO';
+      case 'in_progress': return 'EN_PROCESO';
+      case 'resolved': return 'RESUELTO';
+      case 'closed': return 'CERRADO';
+      default: return 'ABIERTO';
+    }
+  };
+
+  const convertFrontendPriority = (priority: string) => {
+    switch (priority) {
+      case 'low': return 'BAJA';
+      case 'medium': return 'MEDIA';
+      case 'high': return 'ALTA';
+      case 'urgent': return 'CRITICA';
+      default: return 'MEDIA';
+    }
+  };
+
+  // Load inspectors from backend
+  const loadInspectors = async () => {
+    try {
+      const response = await apiClient.getSoporteAgentes();
+      console.log('Inspectors response:', response);
+      
+      if (response && response.data) {
+        const agentes = response.data.agentes || response.data;
+        if (Array.isArray(agentes)) {
+          const inspectorsByType = {
+            logistics: agentes.filter((a: any) => 
+              a.especialidades.includes('Logística') || 
+              a.especialidades.includes('Backend') ||
+              a.especialidades.includes('Integración')
+            ).map((a: any) => a.nombre),
+            customs: agentes.filter((a: any) => 
+              a.especialidades.includes('Aduanas') || 
+              a.especialidades.includes('Configuración')
+            ).map((a: any) => a.nombre),
+            quality: agentes.filter((a: any) => 
+              a.especialidades.includes('Calidad') || 
+              a.especialidades.includes('Backend') ||
+              a.especialidades.includes('API')
+            ).map((a: any) => a.nombre)
+          };
+          
+          // If no specific specialization, add to all categories
+          agentes.forEach((a: any) => {
+            if (!inspectorsByType.logistics.includes(a.nombre) && 
+                !inspectorsByType.customs.includes(a.nombre) && 
+                !inspectorsByType.quality.includes(a.nombre)) {
+              inspectorsByType.logistics.push(a.nombre);
+              inspectorsByType.customs.push(a.nombre);
+              inspectorsByType.quality.push(a.nombre);
+            }
+          });
+          
+          setInspectors(inspectorsByType);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading inspectors:', error);
+      // Fallback to default inspectors if API fails
+      setInspectors({
+        logistics: ["Juan Pérez", "Carlos Rodríguez", "Ana López"],
+        customs: ["Miguel Torres", "Sofia Mendoza", "Roberto Silva"],
+        quality: ["María García", "Pedro Morales", "Lucia Fernández"],
+      });
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -362,135 +536,148 @@ export default function Soporte() {
     setShowTicketDialog(true);
   };
 
-  const handleAssignTicket = () => {
+  const handleAssignTicket = async () => {
     if (!selectedTicket || !selectedInspector || !assignmentComment.trim()) {
-      alert("Debe seleccionar un inspector y proporcionar un comentario.");
+      toast({
+        title: "Error",
+        description: "Debe seleccionar un inspector y proporcionar un comentario.",
+        variant: "destructive",
+      });
       return;
     }
 
-    const updatedTicket = {
-      ...selectedTicket,
-      status: "in_progress" as const,
-      responsible: `Inspector ${getTypeLabel(assignmentType)} - ${selectedInspector}`,
-      responsibleType: assignmentType,
-      lastUpdated: new Date().toISOString().split("T")[0],
-      responses: [
-        ...selectedTicket.responses,
-        {
-          id: `RESP-${Date.now()}`,
-          author: "Administrador de Soporte",
-          authorType: "support" as const,
-          message: `Ticket asignado a ${selectedInspector} (${getTypeLabel(assignmentType)}). ${assignmentComment}`,
-          timestamp: new Date().toLocaleString(),
-          attachments: [],
-        },
-      ],
-    };
-
-    setTickets(
-      tickets.map((t) => (t.id === selectedTicket.id ? updatedTicket : t)),
-    );
-    setSelectedTicket(updatedTicket);
-    setShowAssignDialog(false);
-    setAssignmentComment("");
-    setSelectedInspector("");
-
-    // Mock notification
-    alert(`Ticket asignado a ${selectedInspector}. Notificaciones enviadas.`);
+    try {
+      await apiClient.assignTicket(selectedTicket.id, selectedInspector);
+      
+      // Add comment after assignment if provided
+      if (assignmentComment.trim()) {
+        await apiClient.addTicketComment(selectedTicket.id, {
+          contenido: `Ticket asignado a ${selectedInspector}. ${assignmentComment}`,
+          tipo: 'COMENTARIO',
+          esInterno: false
+        });
+      }
+      
+      toast({
+        title: "Ticket asignado",
+        description: `Ticket asignado a ${selectedInspector}`,
+      });
+      
+      setShowAssignDialog(false);
+      setAssignmentComment("");
+      setSelectedInspector("");
+      loadTickets();
+      
+      // Refresh ticket details
+      if (selectedTicket) {
+        const updatedTicket = await apiClient.getTicket(selectedTicket.id);
+        setSelectedTicket(convertBackendToFrontend(updatedTicket.data));
+      }
+    } catch (error) {
+      console.error('Error assigning ticket:', error);
+      toast({
+        title: "Error",
+        description: "No se pudo asignar el ticket",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleAddResponse = () => {
+  const handleAddResponse = async () => {
     if (!selectedTicket || !responseMessage.trim()) {
-      alert("Debe escribir una respuesta.");
+      toast({
+        title: "Error",
+        description: "Debe escribir una respuesta.",
+        variant: "destructive",
+      });
       return;
     }
 
-    const newResponse: TicketResponse = {
-      id: `RESP-${Date.now()}`,
-      author: "Administrador de Soporte",
-      authorType: "support",
-      message: responseMessage,
-      timestamp: new Date().toLocaleString(),
-      attachments: [],
-    };
-
-    const updatedTicket = {
-      ...selectedTicket,
-      lastUpdated: new Date().toISOString().split("T")[0],
-      responses: [...selectedTicket.responses, newResponse],
-    };
-
-    setTickets(
-      tickets.map((t) => (t.id === selectedTicket.id ? updatedTicket : t)),
-    );
-    setSelectedTicket(updatedTicket);
-    setResponseMessage("");
-
-    alert("Respuesta añadida. Notificación enviada al cliente.");
+    try {
+      await apiClient.addTicketComment(selectedTicket.id, {
+        contenido: responseMessage,
+        tipo: 'COMENTARIO',
+        esInterno: false
+      });
+      
+      toast({
+        title: "Respuesta enviada",
+        description: "La respuesta ha sido agregada al ticket",
+      });
+      
+      setResponseMessage("");
+      
+      // Refresh ticket details
+      const updatedTicket = await apiClient.getTicket(selectedTicket.id);
+      setSelectedTicket(convertBackendToFrontend(updatedTicket.data));
+      loadTickets();
+    } catch (error) {
+      console.error('Error adding response:', error);
+      toast({
+        title: "Error",
+        description: "No se pudo enviar la respuesta",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleUpdateStatus = (newStatus: SupportTicket["status"]) => {
+  const handleUpdateStatus = async (newStatus: SupportTicket["status"]) => {
     if (!selectedTicket) return;
 
-    const updatedTicket = {
-      ...selectedTicket,
-      status: newStatus,
-      lastUpdated: new Date().toISOString().split("T")[0],
-      responses: [
-        ...selectedTicket.responses,
-        {
-          id: `RESP-${Date.now()}`,
-          author: "Administrador de Soporte",
-          authorType: "support" as const,
-          message: `Estado cambiado a "${getStatusText(newStatus)}"`,
-          timestamp: new Date().toLocaleString(),
-          attachments: [],
-        },
-      ],
-    };
-
-    setTickets(
-      tickets.map((t) => (t.id === selectedTicket.id ? updatedTicket : t)),
-    );
-    setSelectedTicket(updatedTicket);
-
-    alert(
-      `Estado actualizado a "${getStatusText(newStatus)}". Notificaciones enviadas.`,
-    );
+    try {
+      const backendStatus = convertFrontendStatus(newStatus);
+      await apiClient.changeTicketStatus(selectedTicket.id, backendStatus);
+      
+      toast({
+        title: "Estado actualizado",
+        description: `Estado actualizado a "${getStatusText(newStatus)}"`,
+      });
+      
+      loadTickets();
+      
+      // Refresh ticket details
+      const updatedTicket = await apiClient.getTicket(selectedTicket.id);
+      setSelectedTicket(convertBackendToFrontend(updatedTicket.data));
+    } catch (error) {
+      console.error('Error updating ticket status:', error);
+      toast({
+        title: "Error",
+        description: "No se pudo actualizar el estado",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleReassignTicket = () => {
     if (!selectedTicket) return;
-
-    const updatedTicket = {
-      ...selectedTicket,
-      escalated: true,
-      escalationDate: new Date().toISOString().split("T")[0],
-      responses: [
-        ...selectedTicket.responses,
-        {
-          id: `RESP-${Date.now()}`,
-          author: "Sistema",
-          authorType: "support" as const,
-          message:
-            "Ticket escalado por falta de respuesta en 48h. Reasignando inspector.",
-          timestamp: new Date().toLocaleString(),
-          attachments: [],
-        },
-      ],
-    };
-
-    setTickets(
-      tickets.map((t) => (t.id === selectedTicket.id ? updatedTicket : t)),
-    );
-    setSelectedTicket(updatedTicket);
     setShowAssignDialog(true);
-
-    alert("Ticket escalado. Proceda a reasignar inspector.");
   };
 
-  const handleUploadEvidence = () => {
-    alert("Funcionalidad de subida de evidencias - Mock implementation");
+  const handleUploadEvidence = async (file: File) => {
+    if (!selectedTicket) return;
+
+    try {
+      await apiClient.uploadTicketEvidence(selectedTicket.id, file);
+      
+      toast({
+        title: "Evidencia subida",
+        description: "La evidencia ha sido agregada al ticket",
+      });
+      
+      setShowEvidenceDialog(false);
+      
+      // Refresh ticket details
+      const updatedTicket = await apiClient.getTicket(selectedTicket.id);
+      setSelectedTicket(convertBackendToFrontend(updatedTicket.data));
+      loadTickets();
+    } catch (error) {
+      console.error('Error uploading evidence:', error);
+      toast({
+        title: "Error",
+        description: "No se pudo subir la evidencia",
+        variant: "destructive",
+      });
+    }
   };
 
   const getTypeLabel = (type: string) => {
@@ -715,7 +902,18 @@ export default function Soporte() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {filteredTickets.map((ticket) => (
+              {loading ? (
+                <div className="flex justify-center items-center py-8">
+                  <Loader2 className="w-8 h-8 animate-spin text-zlc-darkblue" />
+                  <span className="ml-2">Cargando tickets...</span>
+                </div>
+              ) : filteredTickets.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Headphones className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
+                  <p>No hay tickets que coincidan con los filtros</p>
+                </div>
+              ) : (
+                filteredTickets.map((ticket) => (
                 <div
                   key={ticket.id}
                   className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
@@ -770,7 +968,8 @@ export default function Soporte() {
                     </Button>
                   </div>
                 </div>
-              ))}
+                ))
+              )}
             </div>
           </CardContent>
         </Card>
@@ -1121,10 +1320,22 @@ export default function Soporte() {
               <p className="text-xs text-muted-foreground">
                 Soporta: JPG, PNG, PDF, DOC, DOCX (máx. 10MB)
               </p>
+              <input
+                type="file"
+                id="evidence-upload"
+                accept=".jpg,.jpeg,.png,.pdf,.doc,.docx"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    handleUploadEvidence(file);
+                  }
+                }}
+              />
               <Button
                 variant="outline"
                 className="mt-4"
-                onClick={handleUploadEvidence}
+                onClick={() => document.getElementById('evidence-upload')?.click()}
               >
                 Seleccionar Archivos
               </Button>

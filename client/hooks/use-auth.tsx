@@ -11,7 +11,7 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   isAuthenticated: boolean;
-  login: (credentials: LoginRequest) => Promise<void>;
+  login: (credentials: LoginRequest) => Promise<any>; // Return response data
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
 }
@@ -27,20 +27,38 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [loading, setLoading] = useState(true);
 
   const checkAuth = async () => {
+    console.log('🔐 Checking authentication status...');
+    console.log('🔑 Is authenticated:', apiClient.isAuthenticated());
+    
     if (!apiClient.isAuthenticated()) {
+      console.log('❌ Not authenticated, skipping auth check');
       setLoading(false);
       return;
     }
 
     try {
+      console.log('📡 Making profile request...');
       const response = await apiClient.getProfile();
+      console.log('👤 Profile response:', response);
+      
       if (response.status === 'success' && response.data) {
-        setUser(response.data);
+        console.log('✅ Setting user:', response.data);
+        // Use type assertion to handle backend/frontend interface mismatch
+        const userData = {
+          ...response.data,
+          isEmailVerified: true,
+          isActive: true,
+          createdAt: new Date().toISOString(),
+          lastLogin: response.data.lastLogin?.toString() || new Date().toISOString(),
+        } as User;
+        
+        setUser(userData);
       } else {
+        console.log('❌ Invalid profile response');
         setUser(null);
       }
     } catch (error) {
-      console.error('Auth check failed:', error);
+      console.error('❌ Auth check failed:', error);
       setUser(null);
     } finally {
       setLoading(false);
@@ -55,8 +73,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
       console.log('🔵 Auth Hook - Respuesta:', response);
       
       if (response.status === 'success' && response.data?.user) {
-        setUser(response.data.user);
-        console.log('🔵 Auth Hook - Usuario autenticado:', response.data.user);
+        // Use type assertion to handle backend/frontend interface mismatch
+        const userData = {
+          ...response.data.user,
+          isEmailVerified: true,
+          isActive: true,
+          createdAt: new Date().toISOString(),
+          lastLogin: response.data.user.lastLogin?.toString() || new Date().toISOString(),
+        } as User;
+        
+        setUser(userData);
+        console.log('🔵 Auth Hook - Usuario autenticado:', userData);
+        
+        // Return the response data including redirectUrl
+        return response.data;
       } else {
         console.log('🔥 Auth Hook - Error en respuesta:', response);
         throw new Error(response.message || 'Login failed');

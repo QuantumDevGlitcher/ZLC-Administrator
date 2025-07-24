@@ -1,12 +1,15 @@
 import "./global.css";
 
+// Temporarily commenting out API interceptor until login is working
+// import "./lib/api-interceptor";
+
 import { createRoot } from "react-dom/client";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/use-auth";
 import Login from "./pages/Login";
-import Index from "./pages/Index";
+import Dashboard from "./pages/Dashboard";
 import Veracidad from "./pages/Veracidad";
 import Calidad from "./pages/Calidad";
 import Aduana from "./pages/Aduana";
@@ -19,12 +22,12 @@ const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <AuthProvider>
+    <AuthProvider>
+      <TooltipProvider>
         <BrowserRouter>
           <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/" element={<Index />} />
+            <Route path="/" element={<Login />} />
+            <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/veracidad" element={<Veracidad />} />
             <Route path="/calidad" element={<Calidad />} />
             <Route path="/aduana" element={<Aduana />} />
@@ -34,8 +37,8 @@ const App = () => (
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
-      </AuthProvider>
-    </TooltipProvider>
+      </TooltipProvider>
+    </AuthProvider>
   </QueryClientProvider>
 );
 

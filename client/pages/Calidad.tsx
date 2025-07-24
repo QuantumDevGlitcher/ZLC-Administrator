@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,6 +26,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
 import {
   LogOut,
   Search,
@@ -48,9 +49,49 @@ import {
   Camera,
   ClipboardList,
   Beaker,
+  Loader2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { apiClient } from "@/lib/api-client";
 
+// Backend data interfaces
+interface DocumentoTecnico {
+  id: string;
+  nombre: string;
+  tipo: 'FICHA_TECNICA' | 'INFORME_LABORATORIO';
+  descripcion: string;
+  estado: 'DISPONIBLE' | 'NO_DISPONIBLE';
+  url: string;
+  fechaCreacion: string;
+}
+
+interface ImagenCategoria {
+  cantidad: number;
+  fotos: string[];
+}
+
+interface GaleriaImagenes {
+  producto: ImagenCategoria;
+  cajas: ImagenCategoria;
+  contenedor: ImagenCategoria;
+  paletas: ImagenCategoria;
+}
+
+interface LoteInspeccion {
+  id: string;
+  codigo: string;
+  categoria: 'Electrónicos' | 'Textiles' | 'Alimentos' | 'Automotriz';
+  peso: string;
+  proveedor: string;
+  fecha: string;
+  estado: 'APROBADO' | 'RECHAZADO' | 'PENDIENTE';
+  stockDisponible: string;
+  documentos: DocumentoTecnico[];
+  imagenes: GaleriaImagenes;
+  comentariosInspeccion?: string;
+}
+
+// Legacy interface for compatibility - will be mapped from backend data
 interface Batch {
   id: string;
   code: string;
@@ -92,97 +133,210 @@ export default function Calidad() {
     type: string;
     images: string[];
   } | null>(null);
+  const [batches, setBatches] = useState<Batch[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [actionLoading, setActionLoading] = useState(false);
+  
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   const handleLogout = () => {
     navigate("/");
   };
 
-  // Mock data for demonstration
-  const [batches, setBatches] = useState<Batch[]>([
-    {
-      id: "BATCH-001",
-      code: "LOT-2024-001",
-      category: "Electrónicos",
-      weight: 2500,
-      supplier: "Tech Solutions Ltd",
-      date: "2024-01-15",
-      status: "pending",
-      stockPercentage: 85,
+  // Convert backend data to frontend format
+  const convertLoteToLegacy = (lote: LoteInspeccion): Batch => {
+    const fichasTecnicas = lote.documentos.filter(d => d.tipo === 'FICHA_TECNICA');
+    const informesLab = lote.documentos.filter(d => d.tipo === 'INFORME_LABORATORIO');
+    
+    const mapStatus = (estado: string) => {
+      switch (estado) {
+        case 'APROBADO': return 'approved';
+        case 'RECHAZADO': return 'rejected';
+        case 'PENDIENTE': return 'pending';
+        default: return 'pending';
+      }
+    };
+
+    return {
+      id: lote.id,
+      code: lote.codigo,
+      category: lote.categoria,
+      weight: parseInt(lote.peso) || 0,
+      supplier: lote.proveedor,
+      date: lote.fecha,
+      status: mapStatus(lote.estado),
+      stockPercentage: parseInt(lote.stockDisponible) || 0,
       evidence: {
-        technicalSheet: { uploaded: true, url: "/docs/tech-sheet-001.pdf" },
-        labReport: { uploaded: true, url: "/docs/lab-report-001.pdf" },
-        images: {
-          product: ["/img/product-001-1.jpg", "/img/product-001-2.jpg"],
-          pallets: ["/img/pallet-001.jpg"],
-          boxes: ["/img/box-001-1.jpg", "/img/box-001-2.jpg"],
-          container: ["/img/container-001.jpg"],
+        technicalSheet: {
+          uploaded: fichasTecnicas.length > 0 && fichasTecnicas[0].estado === 'DISPONIBLE',
+          url: fichasTecnicas[0]?.url
         },
-      },
-    },
-    {
-      id: "BATCH-002",
-      code: "LOT-2024-002",
-      category: "Textiles",
-      weight: 1800,
-      supplier: "Fashion Global Inc",
-      date: "2024-01-12",
-      status: "approved",
-      stockPercentage: 92,
-      evidence: {
-        technicalSheet: { uploaded: true, url: "/docs/tech-sheet-002.pdf" },
-        labReport: { uploaded: false },
-        images: {
-          product: ["/img/product-002-1.jpg"],
-          pallets: ["/img/pallet-002.jpg"],
-          boxes: ["/img/box-002-1.jpg"],
-          container: ["/img/container-002.jpg"],
+        labReport: {
+          uploaded: informesLab.length > 0 && informesLab[0].estado === 'DISPONIBLE',
+          url: informesLab[0]?.url
         },
-      },
-    },
-    {
-      id: "BATCH-003",
-      code: "LOT-2024-003",
-      category: "Alimentos",
-      weight: 3200,
-      supplier: "Food Express SAC",
-      date: "2024-01-10",
-      status: "rejected",
-      stockPercentage: 15,
-      evidence: {
-        technicalSheet: { uploaded: true, url: "/docs/tech-sheet-003.pdf" },
-        labReport: { uploaded: true, url: "/docs/lab-report-003.pdf" },
         images: {
-          product: ["/img/product-003-1.jpg"],
-          pallets: [],
-          boxes: ["/img/box-003-1.jpg"],
-          container: [],
-        },
+          product: lote.imagenes.producto.fotos,
+          pallets: lote.imagenes.paletas.fotos,
+          boxes: lote.imagenes.cajas.fotos,
+          container: lote.imagenes.contenedor.fotos,
+        }
       },
-      rejectionReason:
-        "Falta foto del interior de caja y montaje del contenedor",
-    },
-    {
-      id: "BATCH-004",
-      code: "LOT-2024-004",
-      category: "Cosméticos",
-      weight: 950,
-      supplier: "Beauty World Ltd",
-      date: "2024-01-08",
-      status: "manual_review",
-      stockPercentage: 18,
-      evidence: {
-        technicalSheet: { uploaded: true, url: "/docs/tech-sheet-004.pdf" },
-        labReport: { uploaded: false },
-        images: {
-          product: ["/img/product-004-1.jpg", "/img/product-004-2.jpg"],
-          pallets: ["/img/pallet-004.jpg"],
-          boxes: ["/img/box-004-1.jpg"],
-          container: ["/img/container-004.jpg"],
-        },
-      },
-    },
-  ]);
+      comments: lote.comentariosInspeccion,
+      rejectionReason: lote.estado === 'RECHAZADO' ? lote.comentariosInspeccion : undefined
+    };
+  };
+
+  // Load lotes from backend
+  const loadLotes = async () => {
+    try {
+      console.log('🔄 Iniciando carga de lotes...');
+      setLoading(true);
+      const params: any = {
+        page: currentPage,
+        limit: 10
+      };
+
+      if (searchTerm) params.search = searchTerm;
+      if (statusFilter !== 'all') {
+        const backendStatus = statusFilter === 'approved' ? 'APROBADO' : 
+                            statusFilter === 'rejected' ? 'RECHAZADO' : 
+                            statusFilter === 'pending' ? 'PENDIENTE' : '';
+        if (backendStatus) params.estado = backendStatus;
+      }
+      if (categoryFilter !== 'all') params.categoria = categoryFilter;
+
+      console.log('📋 Parámetros de búsqueda:', params);
+
+      const response = await apiClient.getLotes(params);
+      console.log('📡 Respuesta del servidor:', response);
+      
+      if (response.status === 'success') {
+        const convertedLotes = response.data.lotes.map(convertLoteToLegacy);
+        console.log('✅ Lotes convertidos:', convertedLotes);
+        setBatches(convertedLotes);
+        setTotalPages(response.data.paginacion.totalPaginas);
+        
+        toast({
+          title: "✅ Lotes cargados",
+          description: `${response.data.lotes.length} lotes encontrados`,
+        });
+      }
+    } catch (error) {
+      console.error('❌ Error loading lotes:', error);
+      toast({
+        variant: "destructive",
+        title: "❌ Error al cargar lotes",
+        description: error instanceof Error ? error.message : "No se pudieron cargar los lotes de inspección",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Approve batch
+  const handleApproveBatch = async (batchId: string, comments?: string) => {
+    try {
+      console.log('🟢 Aprobando lote:', batchId, 'con comentarios:', comments);
+      setActionLoading(true);
+      await apiClient.aprobarLote(batchId, comments);
+      
+      toast({
+        title: "✅ Lote aprobado",
+        description: "El lote ha sido aprobado exitosamente",
+      });
+      
+      await loadLotes(); // Reload data
+      setShowInspectionDialog(false);
+      setSelectedBatch(null);
+    } catch (error) {
+      console.error('Error approving batch:', error);
+      toast({
+        variant: "destructive",
+        title: "❌ Error al aprobar lote",
+        description: "No se pudo aprobar el lote",
+      });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Reject batch
+  const handleRejectBatch = async (batchId: string, comments: string) => {
+    try {
+      console.log('🔴 Rechazando lote:', batchId, 'con comentarios:', comments);
+      if (!comments.trim()) {
+        toast({
+          variant: "destructive",
+          title: "❌ Comentario requerido",
+          description: "Debe proporcionar un comentario para rechazar el lote",
+        });
+        return;
+      }
+
+      setActionLoading(true);
+      await apiClient.rechazarLote(batchId, comments);
+      
+      toast({
+        title: "❌ Lote rechazado",
+        description: "El lote ha sido rechazado exitosamente",
+      });
+      
+      await loadLotes(); // Reload data
+      setShowInspectionDialog(false);
+      setSelectedBatch(null);
+      setRejectionComments("");
+    } catch (error) {
+      console.error('Error rejecting batch:', error);
+      toast({
+        variant: "destructive",
+        title: "❌ Error al rechazar lote",
+        description: "No se pudo rechazar el lote",
+      });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Download document
+  const handleDownloadDocument = async (loteId: string, documentoId: string, fileName: string) => {
+    try {
+      await apiClient.getDocumentoTecnico(loteId, documentoId);
+      
+      toast({
+        title: "📥 Descarga iniciada",
+        description: `Descargando ${fileName}`,
+      });
+    } catch (error) {
+      console.error('Error downloading document:', error);
+      toast({
+        variant: "destructive",
+        title: "❌ Error al descargar",
+        description: "No se pudo descargar el documento",
+      });
+    }
+  };
+
+  // Load data on component mount and when filters change
+  useEffect(() => {
+    loadLotes();
+  }, [currentPage, statusFilter, categoryFilter]);
+
+  // Debounced search
+  useEffect(() => {
+    const debounceTimer = setTimeout(() => {
+      if (currentPage === 1) {
+        loadLotes();
+      } else {
+        setCurrentPage(1); // This will trigger loadLotes via the other useEffect
+      }
+    }, 500);
+
+    return () => clearTimeout(debounceTimer);
+  }, [searchTerm]);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -258,46 +412,13 @@ export default function Calidad() {
     setShowInspectionDialog(true);
   };
 
-  const handleApproveBatch = () => {
-    if (!selectedBatch) return;
-
-    const updatedBatch = {
-      ...selectedBatch,
-      status: "approved" as const,
-    };
-
-    setBatches(
-      batches.map((b) => (b.id === selectedBatch.id ? updatedBatch : b)),
-    );
-    setShowInspectionDialog(false);
-
-    alert(`Lote ${selectedBatch.code} aprobado correctamente.`);
-  };
-
-  const handleRejectBatch = () => {
-    if (!selectedBatch || !rejectionComments.trim()) {
-      alert("Debe proporcionar un comentario para rechazar el lote.");
-      return;
-    }
-
-    const updatedBatch = {
-      ...selectedBatch,
-      status: "rejected" as const,
-      rejectionReason: rejectionComments,
-    };
-
-    setBatches(
-      batches.map((b) => (b.id === selectedBatch.id ? updatedBatch : b)),
-    );
-    setShowInspectionDialog(false);
-
-    alert(`Lote ${selectedBatch.code} rechazado. Notificación enviada.`);
-  };
-
   const handleConfirmProduction = (batchId: string) => {
     const batch = batches.find((b) => b.id === batchId);
     if (batch) {
-      alert(`Nueva producción confirmada para lote ${batch.code}`);
+      toast({
+        title: "✅ Producción confirmada",
+        description: `Nueva producción confirmada para lote ${batch.code}`,
+      });
     }
   };
 
@@ -416,10 +537,25 @@ export default function Calidad() {
                     <SelectItem value="Electrónicos">Electrónicos</SelectItem>
                     <SelectItem value="Textiles">Textiles</SelectItem>
                     <SelectItem value="Alimentos">Alimentos</SelectItem>
+                    <SelectItem value="Automotriz">Automotriz</SelectItem>
                     <SelectItem value="Cosméticos">Cosméticos</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+
+              <Button 
+                onClick={loadLotes} 
+                disabled={loading}
+                variant="outline"
+                className="flex items-center gap-2"
+              >
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                Actualizar
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -501,7 +637,18 @@ export default function Calidad() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {filteredBatches.map((batch) => (
+              {loading ? (
+                <div className="flex flex-col items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-zlc-darkblue mb-4" />
+                  <p className="text-sm text-muted-foreground">Cargando lotes...</p>
+                </div>
+              ) : filteredBatches.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8">
+                  <Package className="h-12 w-12 text-muted-foreground/50 mb-4" />
+                  <p className="text-sm text-muted-foreground">No se encontraron lotes</p>
+                </div>
+              ) : (
+                filteredBatches.map((batch) => (
                 <div
                   key={batch.id}
                   className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
@@ -545,7 +692,7 @@ export default function Calidad() {
                     </Button>
                   </div>
                 </div>
-              ))}
+              )))}
             </div>
           </CardContent>
         </Card>
@@ -640,7 +787,19 @@ export default function Calidad() {
                           <Badge variant="secondary">No disponible</Badge>
                         )}
                         {selectedBatch.evidence.technicalSheet.uploaded && (
-                          <Button size="sm" variant="outline">
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => {
+                              // Find the technical document from the backend data
+                              const originalLote = batches.find(b => b.id === selectedBatch.id);
+                              if (originalLote && selectedBatch.evidence.technicalSheet.url) {
+                                // Extract document ID from URL or use a generated one
+                                const docId = 'ficha-tecnica-' + selectedBatch.id;
+                                handleDownloadDocument(selectedBatch.id, docId, 'Ficha Técnica');
+                              }
+                            }}
+                          >
                             <Download className="w-3 h-3 mr-1" />
                             Ver
                           </Button>
@@ -667,7 +826,19 @@ export default function Calidad() {
                           <Badge variant="secondary">No disponible</Badge>
                         )}
                         {selectedBatch.evidence.labReport.uploaded && (
-                          <Button size="sm" variant="outline">
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => {
+                              // Find the lab report document from the backend data
+                              const originalLote = batches.find(b => b.id === selectedBatch.id);
+                              if (originalLote && selectedBatch.evidence.labReport.url) {
+                                // Extract document ID from URL or use a generated one
+                                const docId = 'informe-laboratorio-' + selectedBatch.id;
+                                handleDownloadDocument(selectedBatch.id, docId, 'Informe de Laboratorio');
+                              }
+                            }}
+                          >
                             <Download className="w-3 h-3 mr-1" />
                             Ver
                           </Button>
@@ -759,7 +930,7 @@ export default function Calidad() {
                 </CardContent>
               </Card>
 
-              {/* Rejection Comments */}
+              {/* Comments Section */}
               {selectedBatch.status === "rejected" ||
               selectedBatch.rejectionReason ? (
                 <Card>
@@ -772,6 +943,20 @@ export default function Calidad() {
                     <p className="text-sm">
                       {selectedBatch.rejectionReason ||
                         "No se especificó motivo"}
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : selectedBatch.status === "approved" && selectedBatch.comments ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg text-green-600">
+                      Comentarios de Aprobación
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm">
+                      {selectedBatch.comments ||
+                        "Lote aprobado sin comentarios adicionales"}
                     </p>
                   </CardContent>
                 </Card>
@@ -809,17 +994,27 @@ export default function Calidad() {
                 <div className="flex space-x-2">
                   <Button
                     variant="destructive"
-                    onClick={handleRejectBatch}
+                    disabled={actionLoading}
+                    onClick={() => handleRejectBatch(selectedBatch.id, rejectionComments)}
                     className="flex items-center gap-2"
                   >
-                    <XCircle className="w-4 h-4" />
+                    {actionLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <XCircle className="w-4 h-4" />
+                    )}
                     Rechazar Lote
                   </Button>
                   <Button
-                    onClick={handleApproveBatch}
+                    disabled={actionLoading}
+                    onClick={() => handleApproveBatch(selectedBatch.id, rejectionComments || undefined)}
                     className="bg-green-600 hover:bg-green-700 flex items-center gap-2"
                   >
-                    <CheckCircle className="w-4 h-4" />
+                    {actionLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <CheckCircle className="w-4 h-4" />
+                    )}
                     Aprobar Lote
                   </Button>
                 </div>

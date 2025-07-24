@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,6 +27,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
+import { apiClient } from "@/lib/api-client";
 import {
   LogOut,
   Search,
@@ -49,6 +51,75 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
+// Backend interfaces
+interface BackendVerificacion {
+  id: string;
+  numeroVerificacion: string;
+  documentoId: string;
+  tipoDocumento: 'FACTURA' | 'CERTIFICADO' | 'CONTRATO' | 'LICENCIA' | 'PERMISO' | 'OTROS';
+  origen: {
+    empresa: string;
+    pais: string;
+    entidadEmisora: string;
+    numeroRegistro?: string;
+    fechaEmision: string | Date;
+    hashDocumento?: string;
+  };
+  metodosVerificacion: {
+    tipo: 'DIGITAL_SIGNATURE' | 'BLOCKCHAIN' | 'API_VALIDATION' | 'MANUAL_CHECK' | 'CROSS_REFERENCE';
+    descripcion: string;
+    estado: 'PENDIENTE' | 'COMPLETADO' | 'FALLIDO';
+    resultado?: string;
+    fecha?: string | Date;
+    confianza: number;
+  }[];
+  estado: 'INICIADA' | 'EN_PROCESO' | 'VERIFICADO' | 'RECHAZADO' | 'EXPIRADO';
+  resultado: {
+    esValido: boolean;
+    nivel: 'ALTO' | 'MEDIO' | 'BAJO' | 'INSUFICIENTE';
+    detalles: string;
+    inconsistencias: {
+      tipo: 'FECHA' | 'FIRMA' | 'FORMATO' | 'CONTENIDO' | 'ORIGEN' | 'INTEGRIDAD';
+      descripcion: string;
+      severidad: 'LEVE' | 'MODERADA' | 'GRAVE' | 'CRITICA';
+      campo?: string;
+      valorEsperado?: string;
+      valorEncontrado?: string;
+    }[];
+    recomendaciones: string[];
+  };
+  fechaInicio: string | Date;
+  fechaCompletado?: string | Date;
+  fechaVencimiento: string | Date;
+  verificadoPor: string;
+  observaciones?: string;
+  evidencias: {
+    id: string;
+    tipo: 'SCREENSHOT' | 'LOG' | 'CERTIFICATE' | 'RESPONSE' | 'DOCUMENT';
+    nombre: string;
+    descripcion: string;
+    url: string;
+    hash: string;
+    fechaCaptura: string | Date;
+    metodo: string;
+  }[];
+  alertas: {
+    id: string;
+    nivel: 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL';
+    mensaje: string;
+    detalles?: string;
+    fechaGenerada: string | Date;
+    resuelto: boolean;
+    fechaResolucion?: string | Date;
+  }[];
+  puntajeConfianza: number;
+  fechaCreacion: string | Date;
+  fechaActualizacion: string | Date;
+  creadoPor: string;
+  actualizadoPor: string;
+}
+
+// Frontend interfaces (adapted from backend data)
 interface Company {
   id: string;
   name: string;
@@ -57,27 +128,97 @@ interface Company {
   registrationDate: string;
   status: "pending" | "verified" | "rejected";
   documents: {
-    zlcLicense: {
-      uploaded: boolean;
-      status?: "approved" | "rejected";
-      comment?: string;
-    };
-    fiscalRegistry: {
-      uploaded: boolean;
-      status?: "approved" | "rejected";
-      comment?: string;
-    };
-    certifications: {
-      uploaded: boolean;
-      status?: "approved" | "rejected";
-      comment?: string;
-    };
+    zlcLicense: DocumentStatus;
+    fiscalRegistry: DocumentStatus;
+    certifications: DocumentStatus;
   };
   backgroundCheck: {
     legalExistence: boolean;
     representativeValid: boolean;
     comment?: string;
   };
+  verificationDetails?: {
+    numeroVerificacion: string;
+    verificadoPor: string;
+    puntajeConfianza: number;
+    metodosVerificacion: string[];
+    evidencias: number;
+    alertas: number;
+    observaciones?: string;
+  };
+}
+
+interface DocumentStatus {
+  uploaded: boolean;
+  status?: "approved" | "rejected" | "pending";
+  comment?: string;
+}
+
+// Conversion functions
+function convertBackendToFrontend(verificacion: BackendVerificacion): Company {
+  return {
+    id: verificacion.id,
+    name: verificacion.origen.empresa,
+    ruc: verificacion.origen.numeroRegistro || verificacion.documentoId,
+    country: verificacion.origen.pais,
+    registrationDate: typeof verificacion.fechaInicio === 'string' ? verificacion.fechaInicio : verificacion.fechaInicio.toISOString(),
+    status: convertBackendStatus(verificacion.estado),
+    documents: {
+      zlcLicense: { 
+        uploaded: verificacion.tipoDocumento === 'LICENCIA',
+        status: verificacion.tipoDocumento === 'LICENCIA' ? convertDocumentStatus(verificacion.estado) : undefined
+      },
+      fiscalRegistry: { 
+        uploaded: verificacion.tipoDocumento === 'CERTIFICADO',
+        status: verificacion.tipoDocumento === 'CERTIFICADO' ? convertDocumentStatus(verificacion.estado) : undefined
+      },
+      certifications: { 
+        uploaded: ['CERTIFICADO', 'PERMISO'].includes(verificacion.tipoDocumento),
+        status: ['CERTIFICADO', 'PERMISO'].includes(verificacion.tipoDocumento) ? convertDocumentStatus(verificacion.estado) : undefined
+      },
+    },
+    backgroundCheck: {
+      legalExistence: verificacion.resultado.esValido,
+      representativeValid: verificacion.puntajeConfianza > 70,
+      comment: verificacion.observaciones
+    },
+    verificationDetails: {
+      numeroVerificacion: verificacion.numeroVerificacion,
+      verificadoPor: verificacion.verificadoPor,
+      puntajeConfianza: verificacion.puntajeConfianza,
+      metodosVerificacion: verificacion.metodosVerificacion.map(m => m.tipo),
+      evidencias: verificacion.evidencias.length,
+      alertas: verificacion.alertas.length,
+      observaciones: verificacion.observaciones
+    }
+  };
+}
+
+function convertBackendStatus(backendStatus: string): "pending" | "verified" | "rejected" {
+  switch (backendStatus) {
+    case 'INICIADA':
+    case 'EN_PROCESO':
+      return 'pending';
+    case 'VERIFICADO':
+      return 'verified';
+    case 'RECHAZADO':
+    case 'EXPIRADO':
+      return 'rejected';
+    default:
+      return 'pending';
+  }
+}
+
+function convertDocumentStatus(backendStatus: string): "approved" | "rejected" | "pending" {
+  switch (backendStatus) {
+    case 'VERIFICADO':
+      return 'approved';
+    case 'RECHAZADO':
+    case 'EXPIRADO':
+      return 'rejected';
+    default:
+      return 'pending';
+  }
 }
 
 export default function Veracidad() {
@@ -90,73 +231,91 @@ export default function Veracidad() {
   const [verificationComments, setVerificationComments] = useState("");
   const [backgroundSearchTerm, setBackgroundSearchTerm] = useState("");
   const [legalExistenceChecked, setLegalExistenceChecked] = useState(false);
-  const [representativeValidChecked, setRepresentativeValidChecked] =
-    useState(false);
+  const [representativeValidChecked, setRepresentativeValidChecked] = useState(false);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   const handleLogout = () => {
     navigate("/");
   };
 
-  // Mock data for demonstration
-  const [companies, setCompanies] = useState<Company[]>([
-    {
-      id: "COMP-001",
-      name: "Importadora Global SAC",
-      ruc: "20123456789",
-      country: "Perú",
-      registrationDate: "2024-01-15",
-      status: "pending",
-      documents: {
-        zlcLicense: { uploaded: true },
-        fiscalRegistry: { uploaded: true },
-        certifications: { uploaded: false },
-      },
-      backgroundCheck: {
-        legalExistence: false,
-        representativeValid: false,
-      },
-    },
-    {
-      id: "COMP-002",
-      name: "Comercial International Ltd",
-      ruc: "900123456",
-      country: "Colombia",
-      registrationDate: "2024-01-12",
-      status: "verified",
-      documents: {
-        zlcLicense: { uploaded: true, status: "approved" },
-        fiscalRegistry: { uploaded: true, status: "approved" },
-        certifications: { uploaded: true, status: "approved" },
-      },
-      backgroundCheck: {
-        legalExistence: true,
-        representativeValid: true,
-      },
-    },
-    {
-      id: "COMP-003",
-      name: "Express Trade SRL",
-      ruc: "RUC-789456123",
-      country: "Ecuador",
-      registrationDate: "2024-01-10",
-      status: "rejected",
-      documents: {
-        zlcLicense: {
-          uploaded: true,
-          status: "rejected",
-          comment: "Licencia vencida",
-        },
-        fiscalRegistry: { uploaded: true, status: "approved" },
-        certifications: { uploaded: false },
-      },
-      backgroundCheck: {
-        legalExistence: false,
-        representativeValid: false,
-        comment: "No se encontró registro en base de datos oficial",
-      },
-    },
-  ]);
+  // Load verifications from backend
+  useEffect(() => {
+    loadVerifications();
+  }, [statusFilter, countryFilter, dateFilter]);
+
+  const loadVerifications = async () => {
+    try {
+      setLoading(true);
+      
+      // Check if we have authentication token
+      const token = localStorage.getItem('accessToken');
+      if (!token) {
+        console.warn('No authentication token found, redirecting to login');
+        navigate('/');
+        return;
+      }
+
+      const params = new URLSearchParams();
+      
+      if (statusFilter !== 'all') {
+        params.append('estado', convertFrontendStatusToBackend(statusFilter));
+      }
+      
+      console.log('Loading verifications with params:', params.toString());
+      console.log('Auth token present:', !!token);
+      
+      const response = await apiClient.getVeracidadVerificaciones(params.toString());
+      console.log('Verifications response:', response);
+      
+      if (response && response.data && response.data.verificaciones) {
+        const verificaciones = response.data.verificaciones;
+        console.log('Verificaciones array:', verificaciones);
+        
+        if (Array.isArray(verificaciones)) {
+          console.log('Converting', verificaciones.length, 'verificaciones from backend to frontend format');
+          const convertedCompanies = verificaciones.map(convertBackendToFrontend);
+          console.log('Converted companies:', convertedCompanies);
+          setCompanies(convertedCompanies);
+        } else {
+          console.warn('Response data.verificaciones is not an array:', verificaciones);
+          setCompanies([]);
+        }
+      } else {
+        console.warn('No data.verificaciones in response:', response);
+        setCompanies([]);
+      }
+    } catch (error: any) {
+      console.error('Error loading verifications:', error);
+      
+      // If 401 or 403, redirect to login
+      if (error.status === 401 || error.status === 403) {
+        localStorage.removeItem('accessToken');
+        navigate('/');
+        return;
+      }
+      
+      toast({
+        title: "Error",
+        description: `Error al cargar verificaciones: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+        variant: "destructive",
+      });
+      setCompanies([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const convertFrontendStatusToBackend = (status: string) => {
+    switch (status) {
+      case 'pending': return 'EN_PROCESO';
+      case 'verified': return 'VERIFICADO';
+      case 'rejected': return 'RECHAZADO';
+      default: return '';
+    }
+  };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -282,58 +441,106 @@ export default function Veracidad() {
   const handleBackgroundValidation = () => {
     if (!selectedCompany) return;
 
-    alert(`Consultando registros oficiales para: ${backgroundSearchTerm}`);
-    // Mock search - in real implementation, this would call an API
+    // In a real implementation, this would call verification APIs
+    toast({
+      title: "Validación en progreso",
+      description: `Consultando registros oficiales para: ${backgroundSearchTerm}`,
+    });
+    
     setLegalExistenceChecked(true);
     setRepresentativeValidChecked(true);
   };
 
-  const handleVerifyCompany = () => {
+  const handleVerifyCompany = async () => {
     if (!selectedCompany) return;
 
-    const updatedCompany = {
-      ...selectedCompany,
-      status: "verified" as const,
-      backgroundCheck: {
-        legalExistence: legalExistenceChecked,
-        representativeValid: representativeValidChecked,
-        comment: verificationComments,
-      },
-    };
+    try {
+      // Update verification in backend
+      const updateData = {
+        estado: 'VERIFICADO',
+        observaciones: verificationComments,
+        resultado: {
+          esValido: true,
+          nivel: 'ALTO',
+          detalles: verificationComments || 'Empresa verificada exitosamente'
+        }
+      };
 
-    setCompanies(
-      companies.map((c) => (c.id === selectedCompany.id ? updatedCompany : c)),
-    );
-    setShowVerificationDialog(false);
+      await apiClient.updateVeracidadVerificacion(selectedCompany.id, updateData);
 
-    // Mock notification
-    alert(
-      `Empresa verificada. Notificación enviada a ${selectedCompany.name}.`,
-    );
+      const updatedCompany = {
+        ...selectedCompany,
+        status: "verified" as const,
+        backgroundCheck: {
+          legalExistence: legalExistenceChecked,
+          representativeValid: representativeValidChecked,
+          comment: verificationComments,
+        },
+      };
+
+      setCompanies(
+        companies.map((c) => (c.id === selectedCompany.id ? updatedCompany : c)),
+      );
+      setShowVerificationDialog(false);
+
+      toast({
+        title: "Empresa verificada",
+        description: `${selectedCompany.name} ha sido verificada exitosamente.`,
+      });
+    } catch (error: any) {
+      console.error('Error verifying company:', error);
+      toast({
+        title: "Error",
+        description: `Error al verificar empresa: ${error.message}`,
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleRejectCompany = () => {
+  const handleRejectCompany = async () => {
     if (!selectedCompany) return;
 
-    const updatedCompany = {
-      ...selectedCompany,
-      status: "rejected" as const,
-      backgroundCheck: {
-        legalExistence: legalExistenceChecked,
-        representativeValid: representativeValidChecked,
-        comment: verificationComments,
-      },
-    };
+    try {
+      // Update verification in backend
+      const updateData = {
+        estado: 'RECHAZADO',
+        observaciones: verificationComments,
+        resultado: {
+          esValido: false,
+          nivel: 'INSUFICIENTE',
+          detalles: verificationComments || 'Empresa rechazada'
+        }
+      };
 
-    setCompanies(
-      companies.map((c) => (c.id === selectedCompany.id ? updatedCompany : c)),
-    );
-    setShowVerificationDialog(false);
+      await apiClient.updateVeracidadVerificacion(selectedCompany.id, updateData);
 
-    // Mock notification
-    alert(
-      `Solicitud rechazada. Notificación enviada a ${selectedCompany.name}.`,
-    );
+      const updatedCompany = {
+        ...selectedCompany,
+        status: "rejected" as const,
+        backgroundCheck: {
+          legalExistence: legalExistenceChecked,
+          representativeValid: representativeValidChecked,
+          comment: verificationComments,
+        },
+      };
+
+      setCompanies(
+        companies.map((c) => (c.id === selectedCompany.id ? updatedCompany : c)),
+      );
+      setShowVerificationDialog(false);
+
+      toast({
+        title: "Empresa rechazada",
+        description: `La solicitud de ${selectedCompany.name} ha sido rechazada.`,
+      });
+    } catch (error: any) {
+      console.error('Error rejecting company:', error);
+      toast({
+        title: "Error",
+        description: `Error al rechazar empresa: ${error.message}`,
+        variant: "destructive",
+      });
+    }
   };
 
   return (
